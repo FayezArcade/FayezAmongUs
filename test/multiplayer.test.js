@@ -52,11 +52,11 @@ test('four private clients play, repair, report, vote, reset and start a second 
   assert.ok(Object.values(host.s.settings.roles).every(r=>!r.enabled));
   assert.equal((await players[1].act('start')).ok,false);
   assert.equal((await host.act('practiceRole',{role:'phantom'})).ok,false);
-  assert.equal((await host.act('suit',{color:'mint',hat:1})).ok,false);
+  assert.equal((await host.act('suit',{color:'sky',hat:1})).ok,false);
   await drive(host,terminal.x,terminal.y);
   assert.equal((await host.act('suit',{color:players[1].s.self.color,hat:1})).ok,false);
-  assert.ok((await host.act('suit',{color:'mint',hat:2})).ok);
-  await until(()=>players[2].s.roster.some(q=>q.color==='mint'&&q.hat===2));
+  assert.ok((await host.act('suit',{color:'sky',hat:2})).ok);
+  await until(()=>players[2].s.roster.some(q=>q.color==='sky'&&q.hat===2));
   assert.ok((await host.act('settings',{impostors:3})).ok);
   assert.equal((await host.act('start')).ok,false);
   assert.ok((await host.act('settings',{impostors:1,discussion:5,voting:10,shortTasks:1,longTasks:0,commonTasks:2,killCooldown:10,anonymous:false,speed:240})).ok);

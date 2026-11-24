@@ -1,7 +1,7 @@
 import {io} from 'socket.io-client';
-import {colors,hats,rooms,doors,vents,tasks,repairs,terminal,meetingPoint,contains,dist} from '../shared/deck.js';
+import {colors,suitPalette,hats,rooms,doors,vents,tasks,repairs,terminal,meetingPoint,contains,dist} from '../shared/deck.js';
 import {special} from '../shared/roles.js';
-import {astronaut,renderer,drawMap} from './art.js';
+import {astronaut,renderer,drawMap,suitPortrait} from './art.js';
 import {taskPanel} from './tasks.js';
 import './style.css';
 
@@ -18,6 +18,7 @@ function markup(id,html){
   if(el.dataset.html!==html){el.innerHTML=html;el.dataset.html=html;}
 }
 const tag=id=>`<i class="swatch" style="--suit:${colors[id]||'#7a9cab'}"></i>`;
+const portrait=(color,hat,alive)=>`<img class="suit-avatar" src="${suitPortrait(color,hat,alive)}" alt="" aria-hidden="true">`;
 const brand='FAYEZ CREW';
 const roleName=p=>special[p.alive?p.role:p.ghost]?.name||(p.alive?p.team==='impostor'?'Infiltrator':'Crewmate':p.team==='impostor'?'Infiltrator Ghost':'Crew Ghost');
 
@@ -201,7 +202,7 @@ function update(){
   }
   if(modal?.kind==='repair'&&(!s.sabotage||!s.sabotage.nearby.length))closeModal(false);
   if(modal?.kind==='repair'&&s.sabotage?.kind==='lights') for(const [i,b] of [...layer.querySelectorAll('[data-switch]')].entries()){b.classList.toggle('active',s.sabotage.pattern[i]);b.textContent=s.sabotage.pattern[i]?'ON':'OFF';}
-  if(modal?.kind==='suit')for(const b of layer.querySelectorAll('[data-color]')){b.disabled=s.roster.some(q=>q.id!==p.id&&q.color===b.dataset.color);b.classList.toggle('active',p.color===b.dataset.color);}
+  if(modal?.kind==='suit')for(const b of layer.querySelectorAll('[data-color]')){b.disabled=s.roster.some(q=>q.id!==p.id&&q.color===b.dataset.color);b.classList.toggle('active',p.color===b.dataset.color);b.setAttribute('aria-pressed',String(p.color===b.dataset.color));}
 }
 function cinemaSuit(canvas,p){
   const ctx=canvas.getContext('2d');
@@ -213,7 +214,7 @@ function cinematic(){
     screen.innerHTML=`<main class="launch-countdown"><div>${s.solo?'SOLO TEST MODE':'PRIVATE FLIGHT'}</div><h1 id="countdown-number"></h1><p>Launching</p></main>`;
   }else if(s.phase==='reveal'){
     const role=p.role&&special[p.role];
-    screen.innerHTML=`<main class="cinema reveal ${p.team==='impostor'?'red':''}"><div class="eyebrow">${s.solo?'SOLO TEST MODE':'PRIVATE ROLE'} · FLIGHT ${s.round}</div><canvas width="220" height="145"></canvas><h1>${escape(roleName(p))}</h1><p>${escape(role?.description||(p.team==='impostor'?'Disrupt the ship. Blend in with the crew.':'Restore the ship. Watch your crewmates.'))}</p>${p.allies.length>1?'<p class="muted">Allies · '+s.roster.filter(q=>q.id!==p.id&&p.allies.includes(q.id)).map(q=>escape(q.name)).join(', ')+'</p>':''}</main>`;
+    screen.innerHTML=`<main class="cinema reveal ${p.team==='impostor'?'red':''}"><div class="eyebrow">${s.solo?'SOLO TEST MODE':'PRIVATE ROLE'} · FLIGHT ${s.round}</div><canvas class="role-portrait" width="220" height="145"></canvas><h1>${escape(roleName(p))}</h1><p>${escape(role?.description||(p.team==='impostor'?'Disrupt the ship. Blend in with the crew.':'Restore the ship. Watch your crewmates.'))}</p>${p.allies.length>1?'<p class="muted">Allies · '+s.roster.filter(q=>q.id!==p.id&&p.allies.includes(q.id)).map(q=>escape(q.name)).join(', ')+'</p>':''}</main>`;
     cinemaSuit(screen.querySelector('canvas'),p);
   }else if(s.phase==='meeting'){
     screen.innerHTML=`<main class="meeting"><header><div class="eyebrow">SHIPWIDE INTERCOM</div><h1>${escape(s.meeting.subject)}</h1><p id="meeting-time"></p></header><div class="meeting-grid"><section><h2>Crew manifest</h2><div id="ballot"></div></section><section><h2>Open channel</h2>${chatForm()}</section></div></main>`;
@@ -223,7 +224,7 @@ function cinematic(){
     if(v.target)cinemaSuit(screen.querySelector('canvas'),{...v.target,alive:true});
   }else if(s.phase==='result'){
     const v=s.outcome;
-    screen.innerHTML=`<main class="cinema result ${v.team==='impostor'?'red':''}"><div class="eyebrow">FLIGHT ${s.round} COMPLETE</div><div class="airlock-icon">✦</div><h1>${v.team==='impostor'?'Infiltrator victory':'Crew victory'}</h1><p>${escape(v.reason)}</p><div class="result-roster">${v.crew.map(q=>`<span>${tag(q.color)}${escape(q.name)}<small>${escape(special[q.role]?.name||(q.team==='impostor'?'Infiltrator':'Crew'))}</small></span>`).join('')}</div><div class="actions">${s.host===p.id?btn('Return to shuttle','reset','primary'):'<span class="muted">Waiting for the captain to re-dock.</span>'}${btn('Leave','leave','quiet')}</div></main>`;
+    screen.innerHTML=`<main class="cinema result ${v.team==='impostor'?'red':''}"><div class="eyebrow">FLIGHT ${s.round} COMPLETE</div><div class="airlock-icon">✦</div><h1>${v.team==='impostor'?'Infiltrator victory':'Crew victory'}</h1><p>${escape(v.reason)}</p><div class="result-roster">${v.crew.map(q=>`<span>${portrait(q.color,q.hat,true)}${escape(q.name)}<small>${escape(special[q.role]?.name||(q.team==='impostor'?'Infiltrator':'Crew'))}</small></span>`).join('')}</div><div class="actions">${s.host===p.id?btn('Return to shuttle','reset','primary'):'<span class="muted">Waiting for the captain to re-dock.</span>'}${btn('Leave','leave','quiet')}</div></main>`;
   }
 }
 function refreshMeeting(){
@@ -231,7 +232,7 @@ function refreshMeeting(){
   document.querySelector('#meeting-time').textContent=(discuss?'Discussion · '+clock(m.voteAt,now()):'Voting · '+clock(m.end,now()))+'s';
   const can=!discuss&&p.alive&&!m.myVote;
   const list=document.querySelector('#ballot');
-  const markup=s.roster.map(q=>`<div class="ballot-row ${q.alive?'':'dead'}"><span>${tag(q.color)} ${escape(q.name)} <small>${q.alive?(q.online?'':'OFFLINE'):'GHOST'}</small></span>${m.voted?.includes(q.id)?'<small>VOTED</small>':''}${q.alive&&q.online&&can?btn('Vote','vote','','data-id="'+q.id+'"'):''}${!discuss&&q.alive&&q.id!==p.id&&p.alive&&p.role==='judge'&&!p.used&&p.assignments.some(a=>a.done)?btn('Override','judge','danger','data-id="'+q.id+'"'):''}${q.id!==p.id?btn(muted.has(q.id)?'Unmute':'Mute','mute','quiet','data-id="'+q.id+'"'):''}</div>`).join('')+(can?btn('Skip vote','vote','outline','data-id="skip"'):m.myVote?'<p class="muted">Ballot submitted.</p>':'');
+  const markup=s.roster.map(q=>`<div class="ballot-row ${q.alive?'':'dead'}"><span>${portrait(q.color,q.hat,q.alive)} ${escape(q.name)} <small>${q.alive?(q.online?'':'OFFLINE'):'GHOST'}</small></span>${m.voted?.includes(q.id)?'<small>VOTED</small>':''}${q.alive&&q.online&&can?btn('Vote','vote','','data-id="'+q.id+'"'):''}${!discuss&&q.alive&&q.id!==p.id&&p.alive&&p.role==='judge'&&!p.used&&p.assignments.some(a=>a.done)?btn('Override','judge','danger','data-id="'+q.id+'"'):''}${q.id!==p.id?btn(muted.has(q.id)?'Unmute':'Mute','mute','quiet','data-id="'+q.id+'"'):''}</div>`).join('')+(can?btn('Skip vote','vote','outline','data-id="skip"'):m.myVote?'<p class="muted">Ballot submitted.</p>':'');
   if(list.dataset.markup!==markup){list.innerHTML=markup;list.dataset.markup=markup;}
 }
 function refreshChat(){
@@ -250,7 +251,8 @@ function settingsPanel(){
 }
 function suitPanel(){
   const p=state.self;
-  panel('suit','Suit locker',`<div class="gear-preview"><canvas width="220" height="145"></canvas><div class="gear-controls"><div class="swatches">${Object.keys(colors).map(c=>btn(tag(c),'color','color-button','data-color="'+c+'" aria-label="'+c+'" title="'+c+'"')).join('')}</div><label>Equipment<select id="hat">${hats.map((h,i)=>`<option value="${i}" ${i===p.hat?'selected':''}>${h}</option>`).join('')}</select></label><label><input id="show-name" type="checkbox" ${p.showName?'checked':''}> Display nickname above suit</label></div></div>`);
+  panel('suit','Suit locker',`<div class="gear-preview"><canvas width="220" height="145" aria-label="Selected suit preview"></canvas><div class="gear-controls"><label>Equipment<select id="hat">${hats.map((h,i)=>`<option value="${i}" ${i===p.hat?'selected':''}>${h}</option>`).join('')}</select></label><label><input id="show-name" type="checkbox" ${p.showName?'checked':''}> Display nickname above suit</label></div></div>
+    <div class="swatches suit-palette" aria-label="Suit colors">${suitPalette.map(([id,name])=>btn(`${portrait(id,0,true)}<span>${name}</span>`,'color','color-button','data-color="'+id+'" aria-label="'+name+'" title="'+name+'"')).join('')}</div>`,{className:'suit-panel'});
   cinemaSuit(layer.querySelector('canvas'),p);update();
 }
 function missionList(){

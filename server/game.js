@@ -27,7 +27,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
   const bound=new Map();
   function reset(r) {
     Object.assign(r,{phase:'lobby',solo:false,until:null,launchCrew:null,players:r.players.filter(p=>p.socket),meeting:null,outcome:null,bodies:[],doors:{},sabotage:null,alerts:[],chat:[],ghostSlots:[]});
-    r.players.forEach((p,i)=>Object.assign(p,spawn(i,true),{alive:true,retired:false,team:null,role:null,ghost:null,assignments:[],opened:null,ventIndex:null,effect:null,shield:0,signal:null,notes:[],moving:false,input:{x:0,y:0}}));
+    r.players.forEach((p,i)=>Object.assign(p,spawn(i,true),{alive:true,retired:false,team:null,role:null,ghost:null,assignments:[],opened:null,ventIndex:null,direction:'down',effect:null,shield:0,signal:null,notes:[],moving:false,input:{x:0,y:0}}));
     migrate(r);
   }
   function migrate(r) {
@@ -51,7 +51,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     valid(!r.players.some(p=>p.name.toLowerCase()===name.toLowerCase()),'That nickname is in use.');
     const p={id:randomBytes(8).toString('hex'),token:randomBytes(24).toString('hex'),name,hat:0,showName:true,
       color:Object.keys(colors).find(c=>!r.players.some(p=>p.color===c)),...spawn(r.players.length,true),
-      alive:true,ventIndex:null,facing:1,input:{x:0,y:0},moving:false,assignments:[]};
+      alive:true,ventIndex:null,facing:1,direction:'down',input:{x:0,y:0},moving:false,assignments:[]};
     r.players.push(p);
     const result=bind(socket,r,p);
     migrate(r);
@@ -366,7 +366,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       const suit=mask||q;
       // The disguise uses a fresh visual identity and carries no underlying player identifier.
       return {id:mask?'echo-'+suit.id:q.id,name:suit.showName?suit.name:'',color:suit.color,hat:suit.hat,...point(q),
-        alive:q.alive,facing:q.facing,moving:q.moving,hidden:q.ventIndex!==null,protected:q===p&&q.shield>t};
+        alive:q.alive,facing:q.facing,direction:q.direction,moving:q.moving,hidden:q.ventIndex!==null,protected:q===p&&q.shield>t};
     };
     const m=r.meeting, s=r.sabotage, e=p.effect;
     const roster=r.players.filter(q=>!q.retired||m).map(q=>({...label(q),alive:inLobby||playable?undefined:active(q)}));
@@ -467,8 +467,12 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
           const {x,y}=p.input, speed=r.settings.speed*(p.alive?1:1.28), blocked=Object.keys(r.doors).map(Number);
           const test=(x,y)=>p.alive||lobby?walkable(x,y,lobby,blocked):x>18&&x<1340&&y>18&&y<900;
           const nx=p.x+x*speed*dt,ny=p.y+y*speed*dt;
-          if(x&&test(nx,p.y)){p.x=nx;p.facing=Math.sign(x);p.moving=true;}
-          if(y&&test(p.x,ny)){p.y=ny;p.moving=true;}
+          const movedX=x&&test(nx,p.y);
+          if(movedX){p.x=nx;p.facing=Math.sign(x);p.moving=true;}
+          const movedY=y&&test(p.x,ny);
+          if(movedY){p.y=ny;p.moving=true;}
+          if(movedX&&(!movedY||Math.abs(x)>=Math.abs(y)))p.direction=x<0?'left':'right';
+          else if(movedY)p.direction=y<0?'up':'down';
         }
         if(r.phase==='play'&&active(p)){
           const name=roomName(p);

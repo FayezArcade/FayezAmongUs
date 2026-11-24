@@ -90,9 +90,13 @@ try {
   await shot(host,'02-shuttle');
   await host.page.keyboard.press('e');
   await host.page.getByRole('dialog',{name:'Suit locker'}).waitFor();
-  await get(host,'mint').click();
+  assert.deepEqual(await host.page.locator('.suit-palette button').allTextContents(),[
+    'Red','Blue','Green','Pink','Orange','Yellow','Black','White','Purple','Brown','Cyan','Lime','Maroon','Rose','Banana','Gray','Tan','Coral'
+  ]);
+  assert.equal(await get(host,'Blue').isEnabled(),false);
+  await get(host,'Cyan').click();
   await host.page.getByLabel('Equipment').selectOption('2');
-  await until(()=>guests.every(p=>p.s.roster.some(q=>q.name==='Ari'&&q.color==='mint'&&q.hat===2)),'Suit selection synchronized');
+  await until(()=>guests.every(p=>p.s.roster.some(q=>q.name==='Ari'&&q.color==='sky'&&q.hat===2)),'Suit selection synchronized');
   await shot(host,'03-suit-locker');
   await host.page.keyboard.press('Escape');
   await get(host,'Settings').click();
@@ -122,6 +126,11 @@ try {
   await infiltrator.page.keyboard.press('Escape');
   const operator=crew[0];
   await shot(operator,'07a-cafeteria-gameplay');
+  await operator.page.keyboard.down('w');
+  await until(()=>operator.s.positions.some(q=>q.id===operator.s.self.id&&q.moving&&q.direction==='up'),'North-facing walk pose');
+  await shot(operator,'22-characters-walking');
+  await operator.page.keyboard.up('w');
+
   await get(operator,'Map').click();
   await shot(operator,'07-meridian-map');
   await operator.page.keyboard.press('Escape');
@@ -180,6 +189,7 @@ try {
   await reporter.page.getByLabel('Chat message').fill('I found a suit in the cafeteria.');
   await get(reporter,'Send').click();
   await operator.page.getByText('I found a suit in the cafeteria.').waitFor();
+  assert.equal(await reporter.page.locator('.ballot-row img.suit-avatar').count(),4);
   await shot(reporter,'11-meeting');
   await advance(5300);
   await get(reporter,'Skip vote').waitFor();
@@ -207,6 +217,12 @@ try {
   await get(solo,'Create room').click();
   await until(()=>solo.s?.roster.length===1,'Single player lobby');
   const code=solo.s.code;
+  await drive(solo,terminal.x,terminal.y);
+  await solo.page.keyboard.press('e');
+  await solo.page.getByRole('dialog',{name:'Suit locker'}).waitFor();
+  assert.equal(await solo.page.locator('.suit-palette button:enabled').count(),18);
+  await shot(solo,'21-color-grid');
+  await solo.page.keyboard.press('Escape');
   await get(solo,'START').click();
   await solo.page.getByRole('heading',{name:/^[1-3]$/}).waitFor();
   await shot(solo,'17-solo-countdown');
@@ -216,6 +232,13 @@ try {
   await advance(3600);
   await until(()=>solo.s.phase==='play'&&solo.s.solo,'Solo map stays playable');
   await shot(solo,'19-solo-gameplay');
+  for(const [key,direction] of [['a','left'],['d','right'],['w','up'],['s','down']]){
+    await solo.page.keyboard.down(key);
+    await until(()=>solo.s.positions.some(q=>q.id===solo.s.self.id&&q.moving&&q.direction===direction),'Walk '+direction);
+    await solo.page.keyboard.up(key);
+  }
+  await until(()=>solo.s.positions.some(q=>q.id===solo.s.self.id&&!q.moving&&q.direction==='down'),'Standing retains last facing');
+
   await get(solo,'Map').click();
   await solo.page.getByRole('dialog',{name:'Meridian deck plan'}).waitFor();
   await solo.page.keyboard.press('Escape');

@@ -52,6 +52,7 @@ To serve a built client locally with the standalone relay, run `npm run build` a
 - [Gameplay audit](docs/COMPLETE_GAMEPLAY_AUDIT.md)
 - [Flight manual and concept art](docs/VISUAL-DESIGN.md)
 - [Dropship update and screenshots](docs/DROPSHIP_UPDATE.md)
+- [Character design and color order](docs/CHARACTERS.md)
 - [Earlier match screenshots](docs/screenshots/)
 
 `client` contains the Vite UI and Canvas renderer. `server` owns the match and Socket.IO protocol. `shared` holds the deck data, puzzle stations and role definitions. All ship art, suits, UI and cues were made for this project.

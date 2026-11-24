@@ -1,4 +1,4 @@
-import {colors} from '../shared/deck.js';
+import {wireColors} from '../shared/deck.js';
 
 const legends={
   wire:'Drag a lead to its matching socket, or select both ends.',
@@ -35,8 +35,8 @@ export function taskPanel(el,initial,now,send) {
     let html='';
     switch(id){
       case 'wire': {
-        const wire=(c,side)=>key('<i></i><span>'+c+'</span>',side,c,`style="--lead:${colors[c]}" class="${p.matched?.includes(c)?'matched':''} ${selected===c&&side==='left'?'selected':''}"`);
-        const links=(p.matched||[]).map(c=>{const y=24+48*p.left.indexOf(c),to=24+48*p.right.indexOf(c);return '<path d="M0 '+y+' C30 '+y+',70 '+to+',100 '+to+'" fill="none" stroke="'+colors[c]+'" stroke-width="3" vector-effect="non-scaling-stroke"/>';}).join('');
+        const wire=(c,side)=>key('<i></i><span>'+c+'</span>',side,c,`style="--lead:${wireColors[c]}" class="${p.matched?.includes(c)?'matched':''} ${selected===c&&side==='left'?'selected':''}"`);
+        const links=(p.matched||[]).map(c=>{const y=24+48*p.left.indexOf(c),to=24+48*p.right.indexOf(c);return '<path d="M0 '+y+' C30 '+y+',70 '+to+',100 '+to+'" fill="none" stroke="'+wireColors[c]+'" stroke-width="3" vector-effect="non-scaling-stroke"/>';}).join('');
         html='<div class="wires"><div>'+p.left.map(c=>wire(c,'left')).join('')+'</div><svg viewBox="0 0 100 192" preserveAspectRatio="none" aria-hidden="true">'+links+'</svg><div>'+p.right.map(c=>wire(c,'right')).join('')+'</div></div>';break;
       }
       case 'card':
@@ -145,7 +145,7 @@ export function taskPanel(el,initial,now,send) {
       if(!cable.ghost){
         cable.ghost=document.createElement('span');
         cable.ghost.className='drag-cable';
-        cable.ghost.style.background=colors[cable.lead];
+        cable.ghost.style.background=wireColors[cable.lead];
         el.append(cable.ghost);
       }
       Object.assign(cable.ghost.style,{left:cable.x+'px',top:cable.y+'px',width:Math.hypot(e.clientX-cable.x,e.clientY-cable.y)+'px',

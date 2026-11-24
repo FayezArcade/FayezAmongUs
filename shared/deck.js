@@ -1,8 +1,14 @@
-export const colors = {
-  coral:'#ed5256', teal:'#27b68d', gold:'#f9cf4e', iris:'#9567e5', sky:'#58c4e8',
-  lime:'#92ce44', rose:'#ef86b2', ice:'#dfe7ed', ember:'#f38838', cobalt:'#4871db',
-  mint:'#68deba', mauve:'#bb6dc4', charcoal:'#555f71', bark:'#af7552', cream:'#f8e2a2', crimson:'#aa475c'
-};
+// Palette order is the order of the three six-suit rows in the locker.
+export const suitPalette = [
+  ['red','Red','#e63e45'], ['cobalt','Blue','#3f62df'], ['teal','Green','#2ea85f'],
+  ['pink','Pink','#db58ad'], ['ember','Orange','#ef842c'], ['gold','Yellow','#f4d549'],
+  ['charcoal','Black','#464b57'], ['ice','White','#e9eef9'], ['iris','Purple','#8a59d8'],
+  ['bark','Brown','#a16a3e'], ['sky','Cyan','#54d6e2'], ['lime','Lime','#83d542'],
+  ['crimson','Maroon','#9e374b'], ['rose','Rose','#ee9bb9'], ['cream','Banana','#f2e1a6'],
+  ['gray','Gray','#788895'], ['tan','Tan','#bea989'], ['coral','Coral','#f47c78']
+];
+export const colors = Object.fromEntries(suitPalette.map(([id,,color])=>[id,color]));
+export const wireColors = {coral:'#ed5256',teal:'#27b68d',gold:'#f9cf4e',iris:'#9567e5'};
 export const hats = ['Standard','Beacon','Antenna','Captain'];
 // Positions are in world units. Corridors are derived from links so artwork and collision share a layout.
 export const rooms = [
