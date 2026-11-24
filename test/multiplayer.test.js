@@ -141,3 +141,40 @@ test('optional roles respect zero and full chance and critical timeout wins', {t
   await until(()=>players.every(p=>p.s.outcome?.team==='impostor'));
   assert.match(host.s.outcome.reason,/oxygen/);
 });
+
+test('engineer hatch travel is gated and the complete assignment pool wins the round',{timeout:25000},async t=>{
+  const {host,players,advance}=await fixture(t);
+  assert.ok((await host.act('settings',{shortTasks:0,longTasks:0,commonTasks:2,speed:240,
+    roles:{engineer:{enabled:true,max:3,chance:100,cooldown:20,duration:8}}})).ok);
+  assert.ok((await host.act('start')).ok);
+  await until(()=>players.every(p=>p.s.phase==='reveal'));
+  const crew=players.filter(p=>p.s.self.role==='engineer');
+  assert.equal(crew.length,3);
+  await advance(3800);
+  const worker=crew[0];
+  assert.equal((await worker.act('vent',{action:'enter'})).ok,false);
+  await drive(worker,940,335);await drive(worker,940,105);await drive(worker,1005,148);
+  assert.ok((await worker.act('ability')).ok);
+  assert.ok((await worker.act('vent',{action:'enter'})).ok);
+  await until(()=>worker.s.self.ventIndex===0);
+  assert.equal((await worker.act('vent',{dest:4})).ok,false);
+  await advance(750);
+  assert.ok((await worker.act('vent',{dest:6})).ok);
+  await until(()=>worker.s.self.ventIndex===6);
+  assert.ok((await worker.act('vent',{action:'exit'})).ok);
+  await drive(worker,660,800);await drive(worker,660,570);await drive(worker,940,570);
+  await Promise.all(crew.slice(1).map(async p=>{await drive(p,940,335);await drive(p,940,570);}));
+  const wire=tasks.find(v=>v.id==='wire').stops[0], badge=tasks.find(v=>v.id==='card').stops[0];
+  await Promise.all(crew.map(async p=>{
+    await drive(p,wire.x,wire.y);
+    const open=await p.act('taskOpen',{id:'wire'});assert.ok(open.puzzle);
+    for(const c of open.puzzle.left)assert.ok((await p.act('taskStep',{type:'pair',a:c,b:c})).ok);
+    await drive(p,940,570);await drive(p,940,335);await drive(p,660,335);await drive(p,badge.x,badge.y);
+    assert.ok((await p.act('taskOpen',{id:'card'})).puzzle);
+    assert.ok((await p.act('taskStep',{type:'begin'})).ok);
+    await wait(500);
+    assert.equal((await p.act('taskStep',{type:'swipe'})).done,true);
+  }));
+  await until(()=>players.every(p=>p.s.outcome?.team==='crew'));
+  assert.match(host.s.outcome.reason,/restored every/);
+});

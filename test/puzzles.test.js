@@ -47,7 +47,9 @@ for(const t of tasks)test('server validates '+t.id,()=>{
         for(const [i,on] of p.active.entries())if(!on)done=step('toggle',i);break;
       case 'align':case 'nav':case 'route':
         assert.ok(step('set',null,null).error);done=step('set',p.target,p.targetY);break;
-      case 'filter':
+      case 'chart':
+        for(let i=0;i<p.waypoints.length;i++)done=step('waypoint',i);break;
+      case 'filter': case 'clean':
         for(const a of p.debris)done=step('clear',a);break;
       default:
         step('begin');assert.ok(step('finish').error);

@@ -18,7 +18,7 @@ function markup(id,html){
   if(el.dataset.html!==html){el.innerHTML=html;el.dataset.html=html;}
 }
 const tag=id=>`<i class="swatch" style="--suit:${colors[id]||'#7a9cab'}"></i>`;
-const brand='<span class="brand-mark" aria-hidden="true">✦</span> FAYEZ <b>CREW</b>';
+const brand='FAYEZ CREW';
 const roleName=p=>special[p.alive?p.role:p.ghost]?.name||(p.alive?p.team==='impostor'?'Infiltrator':'Crewmate':p.team==='impostor'?'Infiltrator Ghost':'Crew Ghost');
 
 let state=null,session=null,joining=false,entry=null,modal=null,phase='',skew=0,noticeTimer,wasReady=false,uiKey='',audio;
@@ -96,7 +96,7 @@ socket.on('state',s=>{
   if(!session||s.self.id!==session.id)return;
   skew=s.now-Date.now();const old=state;state=s;wasReady=true;
   if(phase!==s.phase){
-    phase=s.phase;uiKey='';closeModal(false);held.clear();touch.clear();
+    phase=s.phase;uiKey='';closeModal(false);held.clear();touch.clear();notice('');
     tone(({lobby:'ok',reveal:'launch',meeting:'alarm',verdict:'vote',result:'ok'})[phase]||'tap');
   }
   if(old?.sabotage?.kind!==s.sabotage?.kind&&s.sabotage){tone('alarm');if(s.sabotage.kind==='comms'&&modal?.kind==='tasks')missionList();}
@@ -116,7 +116,7 @@ function chatForm() {
 }
 function hud(){
   const s=state, me=s.self, inLobby=s.phase==='lobby', captain=s.host===me.id;
-  const status=inLobby?'DOCKING SHUTTLE':'MERIDIAN / FLIGHT DECK';
+  const status=inLobby?'Waiting shuttle':'Flight deck';
   const roleText=inLobby?'PRIVATE FLIGHT':roleName(me).toUpperCase();
   screen.innerHTML=`<main class="hud"><header class="topbar"><div><div class="wordmark">${brand}</div><div class="eyebrow">${status}</div></div><div class="flight-data">${inLobby?'<button type="button" class="room-code" data-do="copy" title="Copy room code"><small>ROOM CODE</small><strong id="room-code"></strong></button><div class="count"><small>ON BOARD</small><strong id="crew-count"></strong></div>':'<div class="bar"><small>SHIP RESTORATION <span id="task-count"></span></small><progress max="1" value="0" id="task-progress"></progress></div>'}</div><div class="tag">${roleText}</div></header>
   <div class="side-info" id="side-info"></div><div class="alert" id="emergency" hidden></div>
@@ -172,6 +172,7 @@ function update(){
     const vitals=layer.querySelector('#vitals');
     if(vitals)vitals.innerHTML=(s.tactical.vitals||[]).map(q=>'<li><b>'+escape(q.name)+'</b><span>'+(q.alive?'Online':'No pulse')+'</span></li>').join('');
   }
+  if(modal?.kind==='sabotage')drawMap(layer.querySelector('canvas'),s,true);
   if(modal?.kind==='map')drawMap(layer.querySelector('canvas'),s);
   if(modal?.kind==='chat'||s.phase==='meeting')refreshChat();
   if(modal?.kind==='task'){
@@ -219,7 +220,7 @@ function refreshChat(){
   const bottom=box.scrollTop+box.clientHeight>box.scrollHeight-42;
   box.innerHTML=msg;box.dataset.content=msg;if(bottom)box.scrollTop=box.scrollHeight;
 }
-const numbers={impostors:['Infiltrators',1,3],discussion:['Discussion (s)',5,90],voting:['Voting (s)',10,120],killCooldown:['Strike cooldown (s)',10,60],meetingCooldown:['Intercom cooldown (s)',5,60],shortTasks:['Short tasks',1,8],longTasks:['Long tasks',0,3],commonTasks:['Common tasks',0,2],crewVision:['Crew vision',120,450],speed:['Walk speed',95,240]};
+const numbers={impostors:['Infiltrators',1,3],discussion:['Discussion (s)',5,90],voting:['Voting (s)',10,120],killCooldown:['Strike cooldown (s)',10,60],meetingCooldown:['Intercom cooldown (s)',5,60],shortTasks:['Short tasks',0,8],longTasks:['Long tasks',0,5],commonTasks:['Common tasks',0,2],crewVision:['Crew vision',120,450],speed:['Walk speed',95,240]};
 const numberField=(name,label,min,max,value)=>`<label>${label}<input type="number" name="${name}" min="${min}" max="${max}" value="${value}" required></label>`;
 function settingsPanel(){
   const cfg=state.settings;
@@ -333,10 +334,11 @@ async function click(b){
   }
   if(action==='sabotage'){
     const seconds=clock(p.sabotageAt,now());
-    panel('sabotage','Sabotage controls',`<p>${seconds==='00'?'Select a system to disrupt.':'System access resets in '+seconds+'s.'}</p><div class="targets">${Object.keys(repairs).map(k=>btn(k.toUpperCase(),'target-sabotage','danger','data-id="'+k+'"')).join('')}</div><label>Bulkhead<select id="door">${doors.map((d,i)=>{
+    panel('sabotage','Sabotage controls',`<canvas class="map sabotage-map" width="900" height="594"></canvas><p>${seconds==='00'?'Select a system to disrupt.':'System access resets in '+seconds+'s.'}</p><div class="targets">${Object.keys(repairs).map(k=>btn(k.toUpperCase(),'target-sabotage','danger','data-id="'+k+'"')).join('')}</div><label>Bulkhead<select id="door">${doors.map((d,i)=>{
       const near=rooms.map(q=>({name:q.name,d:dist(q,d)})).sort((a,b)=>a.d-b.d).slice(0,2);
       return '<option value="'+i+'">'+near[0].name+' / '+near[1].name+'</option>';
-    }).join('')}</select></label>${btn('Seal bulkhead','target-sabotage','outline','data-id="doors"')}`);
+    }).join('')}</select></label>${btn('Seal bulkhead','target-sabotage','outline','data-id="doors"')}`,{className:'map-panel'});
+    drawMap(layer.querySelector('canvas'),state,true);
   }
   if(action==='target-sabotage'&&(await command('sabotage',{kind:id,door:Number(document.querySelector('#door').value)})).ok)closeModal(false);
   if(action==='interact')await interact();
@@ -396,7 +398,11 @@ addEventListener('keydown',e=>{
   const k=e.key.toLowerCase();
   if(directions[k]&&(!modal||modal.kind==='map')){held.add(k);e.preventDefault();}
   if(e.repeat)return;
-  if(!modal&&k==='e')void interact();
+  if(!modal&&(k==='e'||k===' ')){e.preventDefault();void interact();}
+  if(!modal&&k==='r'&&state.phase==='play'){
+    const body=nearest(state.bodies,state.self,70);
+    if(body)void command('report',{id:body.id});
+  }
   if(!modal&&k==='q'&&state.phase==='play'&&state.self.team==='impostor')void click({dataset:{do:'strike'}});
   if(k==='m'&&state.phase==='play'){if(modal?.kind==='map')closeModal();else if(!modal)void click({dataset:{do:'map'}});}
 });

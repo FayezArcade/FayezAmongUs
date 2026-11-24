@@ -1,9 +1,9 @@
-# Meridian flight manual
+# Fayez Crew visual guide
 
-The palette uses ink navy (#070e1b), steel blue (#1b2e40), instrument teal (#67f5dd) and amber (#ffbf73). Alarm states use coral (#ff667d). Accent colors are paired with suit name labels, symbols or text.
+The updated game uses a classic 2D cartoon treatment. Black outlines separate the floor, bulkhead rims, props and animated suits. The wait shuttle uses gray steel, blue padded benches, green cargo crates and a laptop with a pale green display. The Cafeteria uses checked floor plating, Electrical uses warm grays and visible cable runs, and the Reactor uses faded purple equipment. Doors and walkable openings share geometry with server collision.
 
-Pressure suits have a round helmet, a full dark circular faceplate, a compact torso, two hinged boots and shoulder-mounted tanks. A helmet stripe carries suit color. Optional original accessories include a beacon, a small antenna and a captain's cap. A four-beat stride uses alternating boots and a slight helmet bob. Ghost suits drift with a fading trail.
+Original suits use a separate, stepped helmet with a framed visor, a light side latch, a chest indicator and short treaded boots. An oxygen pack protrudes opposite the visor. Moving the suit alternates boot height and adds a slight helmet bob. The same proportions apply in the locker, the ship and the role card. Sixteen strong colors are available, and the lobby assigns them exclusively.
 
-The Meridian deck has rounded steel bulkheads, inset floor plates, ceiling light channels and teal console glows. Each room gets a unique equipment silhouette. Space and the drop shuttle use cool hues with amber navigation markers.
+Task panels look like equipment with physical levers, badge readers, colored cable terminals, radar marks and numbered keys. The HUD uses small labels and compact controls. A meeting uses a gray crew roster and a separate message area. Reporting, a ballot, and the outcome still have distinct visual states. The ship fades beyond a player's sightline and during power loss.
 
-Panels use left-aligned names, distinct status labels, cut-line accents and inset instruments. Titles use wide, heavy letterforms. Flight data and room codes use a monospaced face. A meeting uses a full-height crew roster and a dedicated comms pane. Ballot results switch to amber for a held airlock and coral for an ejection.
+The early design boards are archived in [references](references/). [Updated game footage stills](screenshots/) document the implementation. [Official research and side-by-side comparison](VISUAL_COMPARISON.md)

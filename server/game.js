@@ -6,7 +6,7 @@ import {puzzle,publicPuzzle,stepPuzzle,randomOrder} from './puzzles.js';
 const fail = message => {throw new Error(message);};
 const valid = (condition,message) => {if(!condition) fail(message);};
 const cap = (x,min,max,fallback) => Number.isFinite(x)?Math.max(min,Math.min(max,Math.round(x))):fallback;
-const settingKeys = {impostors:[1,3],discussion:[5,90],voting:[10,120],killCooldown:[10,60],meetingCooldown:[5,60],shortTasks:[1,8],longTasks:[0,3],commonTasks:[0,2],crewVision:[120,450],speed:[95,240]};
+const settingKeys = {impostors:[1,3],discussion:[5,90],voting:[10,120],killCooldown:[10,60],meetingCooldown:[5,60],shortTasks:[0,8],longTasks:[0,5],commonTasks:[0,2],crewVision:[120,450],speed:[95,240]};
 const settings = () => ({impostors:1,discussion:18,voting:35,killCooldown:20,meetingCooldown:12,shortTasks:3,longTasks:1,commonTasks:1,crewVision:290,speed:175,anonymous:true,confirm:true,roles:defaultRoles()});
 const alphabet='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const point=(p)=>({x:Math.round(p.x),y:Math.round(p.y)});
@@ -78,6 +78,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
   }
   function start(r,t) {
     const count=r.players.filter(p=>p.socket).length, n=r.settings.impostors;
+    valid(r.settings.commonTasks+r.settings.shortTasks+r.settings.longTasks>0,'Assign at least one maintenance task.');
     valid(count>=4,'At least 4 connected crew are required.');
     valid(count>=n*2+2,'This infiltrator count needs a larger crew.');
     r.players=r.players.filter(p=>p.socket);
@@ -250,10 +251,12 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         if(p.ventIndex===null){
           const here=vents.findIndex(v=>dist(p,v)<48&&hasLine(p,v,blocked));
           valid(here>=0&&req?.action==='enter','Approach a service hatch.');
+          valid(!r.players.some(q=>q.opened?.id==='clean'&&dist(q,vents[here])<57),'This hatch is being serviced.');
           p.ventIndex=here;
         }else{
           const here=p.ventIndex;
           valid(Number.isInteger(dest)&&(dest===(here+1)%vents.length||dest===(here+vents.length-1)%vents.length),'Choose a connected hatch.');
+          valid(!r.players.some(q=>q.opened?.id==='clean'&&dist(q,vents[dest])<57),'That hatch is being serviced.');
           p.ventIndex=dest;
         }
         Object.assign(p,vents[p.ventIndex]);p.ventAt=t+650;p.opened=null;

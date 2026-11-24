@@ -107,6 +107,7 @@ try {
   await shot(infiltrator,'06-phantom-ability');
   await infiltrator.page.keyboard.press('Escape');
   const operator=crew[0];
+  await shot(operator,'07a-cafeteria-gameplay');
   await get(operator,'Map').click();
   await shot(operator,'07-meridian-map');
   await operator.page.keyboard.press('Escape');
@@ -114,11 +115,17 @@ try {
   await drive(operator,940,335);await drive(operator,940,570);await drive(operator,wire.x,wire.y);
   await operator.page.keyboard.press('e');
   await operator.page.getByRole('dialog',{name:'Patch the cable harness'}).waitFor();
-  await shot(operator,'08-cable-task');
   for(const c of ['coral','teal','gold','iris']){
-    await operator.page.locator('[data-key=left][data-value='+c+']').click();
-    await operator.page.locator('[data-key=right][data-value='+c+']').click();
+    const lead=operator.page.locator('[data-key=left][data-value='+c+']');
+    const socket=operator.page.locator('[data-key=right][data-value='+c+']');
+    if(c==='coral'){
+      await lead.dragTo(socket);
+    }else{
+      await lead.click();
+      await socket.click();
+    }
     await until(()=>operator.s.progress.done===1||operator.s.puzzle?.matched?.includes(c),'Cable pair '+c);
+    if(c==='teal')await shot(operator,'08-cable-task');
   }
   await until(()=>operator.s.progress.done===1,'Task progress increased');
   const badge=tasks.find(t=>t.id==='card').stops[0];
@@ -136,6 +143,7 @@ try {
   await until(()=>operator.s.progress.done===2,'Badge credited by server');
   await advance(16000);
   await get(infiltrator,'Sabotage').click();
+  await shot(infiltrator,'10a-sabotage-map');
   await get(infiltrator,'LIGHTS').click();
   await until(()=>crew.every(p=>p.s.sabotage?.kind==='lights'),'Lights disruption reaches crew');
   await drive(operator,660,335);await drive(operator,940,335);await drive(operator,940,607);
@@ -148,21 +156,24 @@ try {
   const [,victim,reporter]=crew;
   for(const p of [infiltrator,victim,reporter])await drive(p,940,335);
   // Keep the reporter and the intended target within strike/report range but apart.
-  await drive(reporter,993,335);
+  await drive(reporter,1024,335);
   await infiltrator.page.keyboard.press('q');
   await until(()=>!victim.s.self.alive,'Victim becomes ghost');
-  await reporter.page.keyboard.press('e');
+  await drive(reporter,victim.s.self.x,victim.s.self.y);
+  await until(()=>reporter.s.bodies.some(b=>b.id===victim.s.self.id&&dist(b,reporter.s.self)<60),'Incident is within report range');
+  await reporter.page.keyboard.press('r');
   await until(()=>players.every(p=>p.s.phase==='meeting'),'Incident opens meeting');
-  await reporter.page.getByLabel('Chat message').fill('I found a suit in the Hub.');
+  await reporter.page.getByLabel('Chat message').fill('I found a suit in the cafeteria.');
   await get(reporter,'Send').click();
-  await operator.page.getByText('I found a suit in the Hub.').waitFor();
+  await operator.page.getByText('I found a suit in the cafeteria.').waitFor();
   await shot(reporter,'11-meeting');
   await advance(5300);
+  await get(reporter,'Skip vote').waitFor();
+  await shot(reporter,'12-ballot');
   for(const p of [reporter,operator]){
     const row=p.page.locator('.ballot-row').filter({hasText:infiltrator.name});
     await row.getByRole('button',{name:'Vote',exact:true}).click();
   }
-  await shot(reporter,'12-ballot');
   await get(infiltrator,'Skip vote').click();
   await until(()=>players.every(p=>p.s.phase==='verdict'),'Ballot ejection on all browsers');
   await shot(reporter,'13-vote-result');
@@ -171,6 +182,7 @@ try {
   await shot(host,'14-victory');
   await get(host,'Return to shuttle').click();
   await until(()=>players.every(p=>p.s.phase==='lobby'),'Private room returns to shuttle');
+  guests[0].s=null;
   await guests[0].page.reload();
   await until(()=>guests[0].s?.roster.some(q=>q.name===guests[0].name&&q.online),'Guest resumes after reload');
   await get(host,'Start flight').click();

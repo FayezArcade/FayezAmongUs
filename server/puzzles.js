@@ -14,14 +14,15 @@ export function puzzle(id,stage,now) {
   const p = {id,stage,start:now,progress:0};
   switch(id) {
     case 'wire': return {...p,left:wires,right:shuffle(wires)};
-    case 'sequence': return {...p,sequence:shuffle([1,2,3,4,5,6])};
+    case 'sequence': {const sequence=Array.from({length:10},(_,i)=>i+1);return {...p,sequence,keys:shuffle(sequence)};}
+    case 'chart': return {...p,waypoints:[40,randomInt(19,56),randomInt(45,79),randomInt(24,59),60]};
     case 'reactor': return {...p,sequence:Array.from({length:5},()=>randomInt(1,10)),reveal:now+3500};
     case 'sample': return {...p,odd:randomInt(4),ready:now+4800};
     case 'target': return {...p,lane:randomInt(5),period:850};
     case 'card': return {...p,from:null};
     case 'shield': return {...p,active:[false,true,false,true,false,false]};
     case 'align': case 'nav': case 'route': return {...p,target:randomInt(18,84),targetY:randomInt(18,84)};
-    case 'filter': return {...p,debris:shuffle([0,1,2,3,4])};
+    case 'filter': case 'clean': return {...p,debris:shuffle([0,1,2,3,4])};
     case 'calibrate': return {...p,period:1550,offset:randomInt(300,900)};
     default: return {...p,hold:null};
   }
@@ -36,9 +37,12 @@ export function stepPuzzle(p,action,now) {
       p.matched=[...(p.matched||[]),a];
       return {done:p.matched.length===4};
     case 'sequence': case 'reactor':
-      if (type!=='key'||now<(p.reveal||0)||!Number.isInteger(a)||a<1||a>9) return wrong('Wait for the relay display.');
+      if (type!=='key'||now<(p.reveal||0)||!Number.isInteger(a)||a<1||a>(p.id==='sequence'?10:9)) return wrong('Wait for the relay display.');
       if(a!==p.sequence[p.progress]) {p.progress=0;if(p.id==='reactor') p.reveal=now+3500;return wrong('Sequence reset.');}
       return {done:++p.progress===p.sequence.length};
+    case 'chart':
+      if(type!=='waypoint'||a!==p.progress)return wrong('Follow the marked route in order.');
+      return {done:++p.progress===p.waypoints.length};
     case 'sample':
       if(type!=='sample'||now<p.ready) return wrong('Samples are processing.');
       if(a!==p.odd) {p.ready=now+3000;p.odd=randomInt(4);return wrong('Retesting the samples.');}
@@ -66,7 +70,7 @@ export function stepPuzzle(p,action,now) {
       p.last=now;
       return {done:++p.progress===3};
     }
-    case 'filter':
+    case 'filter': case 'clean':
       if(type!=='clear'||!p.debris.includes(a)) return wrong('Move a particle out of the intake.');
       p.debris=p.debris.filter(x=>x!==a);
       return {done:p.debris.length===0};
