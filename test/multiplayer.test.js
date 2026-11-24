@@ -4,8 +4,13 @@ import {once} from 'node:events';
 import {setTimeout as wait} from 'node:timers/promises';
 import {io} from 'socket.io-client';
 import {createGameServer} from '../server/index.js';
-import {dist,tasks,terminal} from '../shared/deck.js';
+import {deck,deckRevision,dist,tasks,terminal,vents,repairs} from '../shared/deck.js';
 
+import {deckWaypoints} from './deck-route.mjs';
+
+async function navigate(p,point){
+  for(const q of deckWaypoints(p.s.self,point))await drive(p,q.x,q.y);
+}
 async function until(fn,limit=6500){
   const end=Date.now()+limit;
   while(Date.now()<end){
@@ -22,12 +27,12 @@ async function fixture(t,count=4){
   const peers=[];
   async function connect(){
     const socket=io(root,{transports:['websocket'],forceNew:true});
-    const p={socket,s:null,entry:(data)=>socket.timeout(2500).emitWithAck('enter',data),act:(kind,data)=>socket.timeout(2500).emitWithAck('command',{kind,data})};
+    const p={socket,s:null,entry:(data)=>socket.timeout(2500).emitWithAck('enter',{deck:deckRevision,...data}),act:(kind,data)=>socket.timeout(2500).emitWithAck('command',{kind,data})};
     peers.push(p);socket.on('state',s=>{p.s=s;});
     await once(socket,'connect');return p;
   }
   t.after(async()=>{for(const p of peers)p.socket.disconnect();await server.close();});
-  assert.deepEqual(await fetch(root+'/health').then(r=>r.json()),{ok:true,game:'Fayez Crew'});
+  assert.deepEqual(await fetch(root+'/health').then(r=>r.json()),{ok:true,game:'Fayez Crew',deck:deckRevision});
   assert.equal((await fetch(root+'/socket.io/?EIO=4&transport=polling',{headers:{Origin:'https://untrusted.invalid'}})).status,403);
   const players=await Promise.all(Array.from({length:count},connect));
   const [host,...others]=players;
@@ -41,13 +46,13 @@ async function drive(p,x,y){
   const start=Date.now();
   while(Date.now()-start<6200){
     const here=p.s.self, d=dist(here,{x,y});
-    if(d<12){p.socket.emit('move',{x:0,y:0});return;}
+    if(d<8){p.socket.emit('move',{x:0,y:0});return;}
     p.socket.emit('move',{x:(x-here.x)/Math.max(32,d),y:(y-here.y)/Math.max(32,d)});
     await wait(45);
   }
   assert.fail('Could not reach '+x+', '+y+' from '+JSON.stringify(p.s.self));
 }
-test('four private clients play, repair, report, vote, reset and start a second round', {timeout:45000}, async t=>{
+test('four private clients play, repair, report, vote, reset and start a second round', {timeout:75000}, async t=>{
   const {players,host,advance,connect,session}=await fixture(t);
   assert.ok(Object.values(host.s.settings.roles).every(r=>!r.enabled));
   assert.equal((await players[1].act('start')).ok,false);
@@ -74,7 +79,7 @@ test('four private clients play, repair, report, vote, reset and start a second 
   const worker=crew[0];
   const card=tasks.find(v=>v.id==='card').stops[0];
   assert.equal((await worker.act('taskOpen',{id:'card'})).ok,false);
-  await drive(worker,940,335);await drive(worker,660,335);await drive(worker,card.x,card.y);
+  await navigate(worker,card);
   assert.ok((await worker.act('taskOpen',{id:'card'})).puzzle);
   assert.equal((await worker.act('taskStep',{type:'swipe'})).done,undefined);
   await worker.act('taskStep',{type:'begin'});await advance(450);
@@ -84,12 +89,12 @@ test('four private clients play, repair, report, vote, reset and start a second 
   await advance(11000);
   assert.ok((await villain.act('sabotage',{kind:'lights'})).ok);
   await until(()=>crew.every(p=>p.s.sabotage?.kind==='lights'&&p.s.vision===82));
-  await drive(worker,660,335);await drive(worker,940,335);await drive(worker,940,607);
+  await navigate(worker,repairs.lights[0]);
   await until(()=>worker.s.sabotage.nearby.length);
   for(const [i,on] of worker.s.sabotage.pattern.entries())if(!on)assert.ok((await worker.act('repair',{index:0,a:i})).ok);
   await until(()=>!worker.s.sabotage);
   const [victim,reporter]=crew.filter(p=>p!==worker);
-  await Promise.all([villain,victim,reporter].map(p=>drive(p,940,335)));
+  await Promise.all([villain,victim,reporter].map(p=>navigate(p,deck.cafe)));
   assert.ok((await villain.act('strike',{target:victim.s.self.id})).ok);
   assert.equal((await villain.act('strike',{target:reporter.s.self.id})).ok,false);
   await until(()=>!victim.s.self.alive&&reporter.s.bodies.length);
@@ -100,7 +105,7 @@ test('four private clients play, repair, report, vote, reset and start a second 
   assert.equal((await reporter.act('chat',{text:'spam'})).ok,false);
   await until(()=>reporter.s.chat.length===1&&victim.s.chat.length===2);
   assert.equal((await reporter.act('vote',{id:villain.s.self.id})).ok,false);
-  await advance(5100);
+  await advance(7000);
   assert.equal((await victim.act('vote',{id:villain.s.self.id})).ok,false);
   for(const p of [reporter,worker,villain])assert.ok((await p.act('vote',{id:p===villain?'skip':villain.s.self.id})).ok);
   await until(()=>players.every(p=>p.s.phase==='verdict'));
@@ -143,7 +148,7 @@ test('optional roles respect zero and full chance and critical timeout wins', {t
   assert.match(host.s.outcome.reason,/oxygen/);
 });
 
-test('engineer hatch travel is gated and the complete assignment pool wins the round',{timeout:25000},async t=>{
+test('engineer hatch travel is gated and the complete assignment pool wins the round',{timeout:52000},async t=>{
   const {host,players,advance}=await fixture(t);
   assert.ok((await host.act('settings',{shortTasks:0,longTasks:0,commonTasks:2,speed:240,
     roles:{engineer:{enabled:true,max:3,chance:100,cooldown:20,duration:8}}})).ok);
@@ -154,23 +159,23 @@ test('engineer hatch travel is gated and the complete assignment pool wins the r
   await advance(3800);
   const worker=crew[0];
   assert.equal((await worker.act('vent',{action:'enter'})).ok,false);
-  await drive(worker,940,335);await drive(worker,940,105);await drive(worker,1005,148);
+  await navigate(worker,vents[0]);
   assert.ok((await worker.act('ability')).ok);
   assert.ok((await worker.act('vent',{action:'enter'})).ok);
   await until(()=>worker.s.self.ventIndex===0);
   assert.equal((await worker.act('vent',{dest:4})).ok,false);
   await advance(750);
-  assert.ok((await worker.act('vent',{dest:6})).ok);
-  await until(()=>worker.s.self.ventIndex===6);
+  assert.ok((await worker.act('vent',{dest:9})).ok);
+  await until(()=>worker.s.self.ventIndex===9);
   assert.ok((await worker.act('vent',{action:'exit'})).ok);
-  await drive(worker,660,800);await drive(worker,660,570);await drive(worker,940,570);
-  await Promise.all(crew.slice(1).map(async p=>{await drive(p,940,335);await drive(p,940,570);}));
-  const wire=tasks.find(v=>v.id==='wire').stops[0], badge=tasks.find(v=>v.id==='card').stops[0];
+  const wire=tasks.find(v=>v.id==='wire'), badge=tasks.find(v=>v.id==='card').stops[0];
   await Promise.all(crew.map(async p=>{
-    await drive(p,wire.x,wire.y);
-    const open=await p.act('taskOpen',{id:'wire'});assert.ok(open.puzzle);
-    for(const c of open.puzzle.left)assert.ok((await p.act('taskStep',{type:'pair',a:c,b:c})).ok);
-    await drive(p,940,570);await drive(p,940,335);await drive(p,660,335);await drive(p,badge.x,badge.y);
+    for(const stop of wire.stops){
+      await navigate(p,stop);
+      const open=await p.act('taskOpen',{id:'wire'});assert.ok(open.puzzle);
+      for(const c of open.puzzle.left)assert.ok((await p.act('taskStep',{type:'pair',a:c,b:c})).ok);
+    }
+    await navigate(p,badge);
     assert.ok((await p.act('taskOpen',{id:'card'})).puzzle);
     assert.ok((await p.act('taskStep',{type:'begin'})).ok);
     await wait(500);
@@ -198,7 +203,7 @@ test('a solo flight exposes stations and practice tools, survives sabotage, and 
   assert.equal(host.s.phase,'play');
   assert.equal(host.s.self.assignments.length,tasks.length);
   const card=tasks.find(q=>q.id==='card').stops[0];
-  await drive(host,940,335);await drive(host,660,335);await drive(host,card.x,card.y);
+  await navigate(host,card);
   assert.ok((await host.act('taskOpen',{id:'card'})).puzzle);
   await host.act('taskStep',{type:'begin'});await advance(450);
   assert.equal((await host.act('taskStep',{type:'swipe'})).done,true);
@@ -233,4 +238,30 @@ test('a private dropship supports ten people and rejects an eleventh',async t=>{
   }
   await until(()=>host.s.roster.length===10);
   assert.equal(new Set(host.s.roster.map(p=>p.color)).size,10);
+});
+
+test('meeting keeps discussion and voting separate, supports a full anonymous tie timer, then resumes',{timeout:13000},async t=>{
+  const {host,players,advance}=await fixture(t);
+  await host.act('settings',{discussion:5,voting:10,anonymous:true,confirm:false,early:false});
+  await host.act('start');
+  await advance(3100);
+  await advance(16000);
+  assert.ok((await host.act('emergency')).ok);
+  await until(()=>players.every(p=>p.s.meeting?.kind==='emergency'));
+  const m=host.s.meeting;
+  assert.ok(players.every(p=>p.s.meeting.caller===host.s.self.id&&p.s.meeting.introUntil===m.introUntil));
+  assert.equal(m.voteAt-m.introUntil,5000);
+  assert.equal(m.end-m.voteAt,10000);
+  assert.equal((await host.act('vote',{id:'skip'})).ok,false);
+  await advance(7000);
+  for(const [i,p] of players.entries())assert.ok((await p.act('vote',{id:i<2?'skip':host.s.self.id})).ok);
+  assert.equal((await host.act('vote',{id:'skip'})).ok,false);
+  await until(()=>players.every(p=>p.s.meeting?.voted.length===4));
+  assert.ok(players.every(p=>p.s.phase==='meeting'&&p.s.meeting.result===null));
+  await advance(10100);
+  await until(()=>players.every(p=>p.s.phase==='verdict'&&p.s.meeting.result.tie));
+  assert.equal(host.s.meeting.result.votes,null);
+  assert.equal(host.s.meeting.result.target,null);
+  await advance(4900);
+  await until(()=>players.every(p=>p.s.phase==='play'&&p.s.self.alive));
 });

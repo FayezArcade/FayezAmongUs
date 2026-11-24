@@ -1,4 +1,4 @@
-import {rooms,corridors,lobby,doors,vents,terminal,tasks,repairs,colors,lobbySeats,lobbyCrates,contains} from '../shared/deck.js';
+import {rooms,corridors,terrain,lobby,doors,vents,ventConnections,terminal,tasks,repairs,colors,lobbySeats,lobbyCrates,contains,meetingPoint,playerScale} from '../shared/deck.js';
 
 function box(ctx,x,y,w,h,r,fill,stroke,line=1){
   ctx.beginPath();ctx.roundRect(x,y,w,h,r);
@@ -80,10 +80,8 @@ export function astronaut(ctx,p,t,scale=1){
   ctx.fillStyle=body;ctx.fill();ctx.strokeStyle=ink;ctx.lineWidth=3.4;ctx.lineJoin='round';ctx.stroke();
 
   if(back){
-    box(ctx,-10,-20,22,24,6,dark,ink,2.6);
-    box(ctx,-7,-17,16,8,2,bright);
-    box(ctx,-2,-14,6,3,1,'#f2d084','#494139',.75);
-    box(ctx,-6,-4,14,2,1,deep);
+    box(ctx,-9,-19,19,22,7,dark,ink,2.6);
+    box(ctx,-6,-16,5,13,2,bright);
   }else{
     const offset=front?0:3;
     const glass=ctx.createLinearGradient(0,-29,0,-12);
@@ -91,8 +89,6 @@ export function astronaut(ctx,p,t,scale=1){
     polygon(ctx,[[-12+offset,-25],[-7+offset,-30],[9+offset,-30],[14+offset,-26],[14+offset,-17],[9+offset,-14],[-8+offset,-14],[-12+offset,-18]],glass,ink,2.9);
     box(ctx,-6+offset,-27,12,3,1.5,'#edfaff');
     circle(ctx,9+offset,-25,.95,'#edfaff');
-    box(ctx,-4,-7,9,4,2,deep,ink,.7);
-    box(ctx,-2,-6,3,2,1,'#f2d084');
   }
 
   if(p.hat===1){box(ctx,-7,-42,14,7,3,'#e9ae55',ink,2);box(ctx,-4,-41,6,2,1,'#fff5ae');}
@@ -103,7 +99,7 @@ export function astronaut(ctx,p,t,scale=1){
   if(p.protected||p.name){
     ctx.save();ctx.translate(p.x,p.y);ctx.scale(scale,scale);
     if(p.protected)circle(ctx,0,-9,24,'#84eece34','#9beed7',2);
-    if(p.name)text(ctx,p.name,0,p.hat?-52:-44,11,'#fff','center');
+    if(p.name)text(ctx,p.name,0,p.hat?-53:-46,scale===playerScale?14.5:11,'#fff','center');
     ctx.restore();
   }
 }
@@ -176,14 +172,15 @@ function seat(ctx,{x,y,w,h}){
   box(ctx,x-w/2+9,y+h/2-11,w-18,6,3,'#507497','#273e52',1.3);
 }
 function roomProp(ctx,r){
-  const {x,y,accent,prop}=r;
+  const {x,y,prop}=r;
   ctx.save();ctx.translate(x,y);
   const plate=(x,y,w,h,c='#718184')=>box(ctx,x,y,w,h,6,c,inks.line,2.5);
   if(prop==='table'){
-    for(const [a,b,rad] of [[0,-8,29],[-68,32,19],[69,-39,17]]){
+    for(const [a,b,rad] of [[0,-8,56],[-107,52,23],[101,-51,22],[-99,-56,21],[108,51,22]]){
       circle(ctx,a+3,b+5,rad+2,'#484d48a0');
       circle(ctx,a,b,rad,'#587d96','#253f53',2.7);
       circle(ctx,a,b-3,rad-4,'#7897ad','#3e5f75',1.7);
+      if(a!==0)for(const side of [-1,1])seat(ctx,{x:a+side*(rad+5),y:b+2,w:12,h:14});
       if(a===0){
         box(ctx,-13,-20,26,22,4,'#b9a86e','#382c23',1.8);
         circle(ctx,0,-9,6,'#e67c65','#613b35',1.5);
@@ -242,11 +239,8 @@ function roomProp(ctx,r){
   ctx.restore();
 }
 function passage(ctx,c){
-  const {x,y,w,h,horizontal,a,b}=c,A=rooms[a],B=rooms[b];
-  const left=horizontal?Math.min(A.x+A.w/2,B.x+B.w/2)-7:x-w/2;
-  const right=horizontal?Math.max(A.x-A.w/2,B.x-B.w/2)+7:x+w/2;
-  const top=horizontal?y-h/2:Math.min(A.y+A.h/2,B.y+B.h/2)-7;
-  const bottom=horizontal?y+h/2:Math.max(A.y-A.h/2,B.y-B.h/2)+7;
+  const {x,y,w,h,horizontal}=c;
+  const left=x-w/2,right=x+w/2,top=y-h/2,bottom=y+h/2;
   box(ctx,left-3,top-3,right-left+6,bottom-top+6,3,'#393d46','#17191d',2);
   box(ctx,left,top,right-left,bottom-top,3,'#636e75');
   if(horizontal){
@@ -332,8 +326,23 @@ function buildScene(inLobby){
     screws(ctx,[[335,549],[565,549],[337,576],[564,576]]);
     return cache;
   }
-  for(const r of rooms)wallRoom(ctx,r);
   for(const c of corridors)passage(ctx,c);
+  for(const r of rooms)wallRoom(ctx,r);
+  for(const c of corridors){
+    for(const r of rooms){
+      const edge=c.horizontal?[r.x-r.w/2,r.x+r.w/2]:[r.y-r.h/2,r.y+r.h/2];
+      const cross=c.horizontal?c.y:c.x;
+      const offset=c.horizontal?r.y:r.x, span=c.horizontal?r.h:r.w;
+      if(Math.abs(cross-offset)>span/2-13)continue;
+      for(const e of edge){
+        const gate=c.horizontal?{x:e,y:c.y}:{x:c.x,y:e};
+        if(!contains(c,gate.x,gate.y,2))continue;
+        box(ctx,gate.x-(c.horizontal?11:34),gate.y-(c.horizontal?34:11),c.horizontal?22:68,c.horizontal?68:22,2,'#777e7e','#414d56',1.5);
+        const stripe=c.horizontal?[0,-28]:[-28,0];
+        box(ctx,gate.x+stripe[0]-2,gate.y+stripe[1]-2,4,4,1,'#d5bc75');
+      }
+    }
+  }
   for(const r of rooms){
     roomProp(ctx,r);
     text(ctx,r.name,r.x,r.y+r.h/2-13,11,'#eeede3','center');
@@ -349,7 +358,6 @@ function buildScene(inLobby){
   return cache;
 }
 const stars=Array.from({length:142},(_,i)=>[(i*137.825)%1,(i*273.901)%1,i%7]);
-const terrain=[...rooms,...corridors];
 const stride=4, columns=342, rows=226;
 const mask=Uint8Array.from({length:columns*rows},(_,i)=>terrain.some(q=>contains(q,(i%columns)*stride,Math.floor(i/columns)*stride))?1:0);
 const rays=Array.from({length:112},(_,i)=>[Math.cos(i*Math.PI*2/112),Math.sin(i*Math.PI*2/112)]);
@@ -359,13 +367,14 @@ function sight(s){
     let d=0;
     for(;d<s.vision;d+=5){
       const px=x+dx*d,py=y+dy*d;
-      if(alive&&(!mask[Math.round(py/stride)*columns+Math.round(px/stride)]||shut.some(q=>contains(q,px,py))))break;
+      const sx=Math.round(px/stride),sy=Math.round(py/stride);
+      if(alive&&(sx<0||sx>=columns||sy<0||sy>=rows||!mask[sy*columns+sx]||shut.some(q=>contains(q,px,py))))break;
     }
     return [x+dx*(d+6),y+dy*(d+6)];
   });
 }
 export function renderer(canvas){
-  const ctx=canvas.getContext('2d'), scenes=[buildScene(false),buildScene(true)], tracks=new Map();
+  const ctx=canvas.getContext('2d'), scenes=[deckArtwork(),buildScene(true)], tracks=new Map();
   let camera=null,phase='',visibleKey='',visibility=null;
   return (s,t)=>{
     const w=innerWidth,h=innerHeight,dpr=Math.min(1.75,devicePixelRatio||1);
@@ -387,7 +396,7 @@ export function renderer(canvas){
       }
       return;
     }
-    const zoom=inLobby?Math.max(.22,Math.min((w-22)/810,(h-136)/605,1.26)):Math.min(Math.max(w/850,.79),1.62);
+    const zoom=inLobby?Math.max(.22,Math.min((w-22)/810,(h-136)/605,1.26)):Math.min(Math.max(w/920,.79),1.52);
     const target=inLobby?{x:450,y:309}:s.self;
     if(phase!==s.phase||!camera){camera={x:target.x,y:target.y};tracks.clear();phase=s.phase;}
     camera.x+=(target.x-camera.x)*.19;camera.y+=(target.y-camera.y)*.19;
@@ -420,7 +429,7 @@ export function renderer(canvas){
       q.x+=(p.x-q.x)*.31;q.y+=(p.y-q.y)*.31;
       const arrival=s.phase==='play'?Math.min(1,(t-q.seenAt)/170):1;
       ctx.save();ctx.globalAlpha=arrival;
-      astronaut(ctx,{...p,x:q.x,y:q.y-(1-arrival)*5},t);
+      astronaut(ctx,{...p,x:q.x,y:q.y-(1-arrival)*5},t,playerScale);
       ctx.restore();
     }
     if(!inLobby&&s.phase==='play'){
@@ -442,16 +451,40 @@ export function renderer(canvas){
 }
 export function drawMap(canvas,s,sabotage=false){
   const ctx=canvas.getContext('2d');
-  ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,canvas.width,canvas.height);ctx.scale(canvas.width/1365,canvas.height/900);
-  for(const c of corridors)box(ctx,c.x-c.w/2,c.y-c.h/2,c.w,c.h,4,'#777f82','#d3d6ca',3);
+  ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.scale(canvas.width/1365,canvas.height/900);
+  for(const c of corridors)box(ctx,c.x-c.w/2,c.y-c.h/2,c.w,c.h,3,sabotage?'#b77f86b0':'#9ebcf2ad',sabotage?'#ffd3cd':'#ebf4ff',2);
   for(const r of rooms){
-    polygon(ctx,hull(r),sabotage&&Object.values(repairs).flat().some(q=>contains(r,q.x,q.y))?'#86504e':floors[r.prop][0],'#d5d4c8',3);
-    text(ctx,r.name,r.x,r.y+7,20,'#fff5d8','center');
+    const station=Object.values(repairs).flat().some(q=>q.room===r.id);
+    polygon(ctx,hull(r),sabotage?(station?'#8a384d':'#563249'):'#2354cfe6',sabotage?'#ffd3cd':'#f4f8ff',3);
+    text(ctx,r.name,r.x,r.y+7,19,'#f5f8ff','center');
   }
-  if(!sabotage&&s.sabotage?.kind!=='comms')for(const a of s.self.assignments)if(!a.done){
-    const q=tasks.find(t=>t.id===a.id).stops[a.stage];circle(ctx,q.x,q.y,9,'#e9c25a','#423827',2);
+  if(sabotage){
+    ctx.setLineDash([6,6]);
+    for(const [a,b] of ventConnections){
+      ctx.beginPath();ctx.moveTo(vents[a].x,vents[a].y);ctx.lineTo(vents[b].x,vents[b].y);ctx.strokeStyle='#ffd29b';ctx.lineWidth=2;ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    for(const v of vents)box(ctx,v.x-7,v.y-4,14,8,2,'#f0b77d','#3d2b36',2);
+    for(const q of doors)box(ctx,q.x-5,q.y-5,10,10,2,s.doors.includes(q.id)?'#ffdf98':'#d7959e','#603d52',1);
+    for(const [kind,points] of Object.entries(repairs))for(const q of points){
+      circle(ctx,q.x,q.y,11,s.sabotage?.kind===kind?'#fff0a7':'#ef9c9b','#4f2d3b',2);
+      text(ctx,kind[0].toUpperCase(),q.x,q.y+4,11,'#fff8e9','center');
+    }
+  }else{
+    circle(ctx,meetingPoint.x,meetingPoint.y+28,9,'#bc798a','#fff4e7',2);
+    if(s.sabotage?.kind!=='comms')for(const a of s.self.assignments)if(!a.done){
+      const q=tasks.find(task=>task.id===a.id).stops[a.stage];
+      circle(ctx,q.x,q.y,9,'#f3cf62','#423827',2);text(ctx,'!',q.x,q.y+4,11,'#fff0b4','center');
+    }
+    if(s.sabotage)for(const q of repairs[s.sabotage.kind])circle(ctx,q.x,q.y,12,'#e47770','#4f2d2b',2);
   }
-  if(s.sabotage)for(const q of repairs[s.sabotage.kind])circle(ctx,q.x,q.y,12,'#e47770','#4f2d2b',2);
   if(s.tactical.track)circle(ctx,s.tactical.track.x,s.tactical.track.y,12,'#b593cc','#4b365c',2);
-  circle(ctx,s.self.x,s.self.y,11,'#9ad0b4','#283b35',3);
+  circle(ctx,s.self.x,s.self.y,10,'#b2f5cf','#162c32',3);
 }
+export function drawDeckOverview(canvas){
+  const ctx=canvas.getContext('2d');
+  ctx.drawImage(deckArtwork(),0,0,canvas.width,canvas.height);
+}
+let deckImage;
+const deckArtwork=()=>deckImage??=buildScene(false);

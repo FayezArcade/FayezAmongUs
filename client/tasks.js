@@ -3,7 +3,7 @@ import {wireColors} from '../shared/deck.js';
 const legends={
   wire:'Drag a lead to its matching socket, or select both ends.',
   card:'Drag the access badge all the way through the reader at a steady speed.',
-  data:'Keep the transfer engaged until the flight record is accepted.',
+  data:'Start the transfer and keep this terminal open until it finishes.',
   route:'Move the selector into the highlighted current band.',
   align:'Center the gimbal within the illuminated tolerance.',
   scan:'Hold the scanner engaged until its reading stabilizes.',
@@ -24,8 +24,9 @@ const key=(label,type,a='',attr='')=>`<button type="button" data-key="${type}" d
 const range=(id,title,target)=>`<label>${title}<div class="slider"><span style="left:${target}%"></span><input id="${id}" type="range" min="0" max="100" value="50"><output>50</output></div></label>`;
 
 export function taskPanel(el,initial,now,send) {
+  let transferEnding=false;
   let p=initial, selected=null, dragging=null, cable=null, held=false, holdAt=0, last='';
-  const id=initial.id;
+  const id=initial.instrument||initial.id;
   const status=document.createElement('p');status.className='feedback';status.setAttribute('role','status');
   el.innerHTML=`<p class="instrument-help">${legends[id]}</p><div class="hardware"></div>`;
   const hardware=el.querySelector('.hardware');hardware.dataset.instrument=id;el.append(status);
@@ -44,7 +45,10 @@ export function taskPanel(el,initial,now,send) {
       case 'nav':
         html='<div class="steering" aria-label="Guidance crosshair"><i style="left:'+p.target+'%;top:'+p.targetY+'%"></i><b></b></div><div class="steering-sliders">'+range('axis','Horizontal setting',p.target)+range('axis-y','Vertical setting',p.targetY)+'</div>'+key('Lock course','axes','','class="primary"');
         break;
-      case 'align':case 'route':
+      case 'route':
+        if(p.stage===1){html='<div class="tool-face">RECEIVING RELAY <div>⚡</div></div>'+key('Accept power','accept','','class="primary"');break;}
+        // The first stage uses the same trim control as engine alignment.
+      case 'align':
         html=(id==='route'?'<div class="current-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>':'')+range('axis',id==='align'?'Engine trim':id==='route'?'Auxiliary current':'Horizontal setting',p.target)+key('Confirm reading','axes','','class="primary"');break;
       case 'shield':
         html='<div class="keygrid">'+p.active.map((on,i)=>key((i+1)+' · '+(on?'ON':'OFF'),'toggle',i,'class="'+(on?'active':'')+'"')).join('')+'</div>';break;
@@ -55,8 +59,10 @@ export function taskPanel(el,initial,now,send) {
         html='<div class="chart-board"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="'+p.waypoints.map((y,i)=>xs[i]+','+y).join(' ')+'" fill="none" stroke="#9aaf8e" stroke-width="1" stroke-dasharray="3 3"/></svg>'+p.waypoints.map((y,i)=>key(i<p.progress?'●':i+1,'waypoint',i,'style="left:'+xs[i]+'%;top:'+y+'%" class="'+(i<=p.progress?'active':'')+'"')).join('')+'</div>';break;
       }
       case 'sequence':case 'reactor': {
-        const reading=id==='sequence'?'VALVES '+p.progress+' / 10':p.sequence?.join(' · ')||'•••••';
-        html='<div class="digits">'+reading+'</div><p class="muted">Accepted: '+p.progress+'</p><div class="keygrid">'+(p.keys||Array.from({length:9},(_,i)=>i+1)).map(value=>key(value,'key',value,id==='sequence'&&value<=p.progress?'disabled class="active"':'')).join('')+'</div>';break;
+        const showing=id==='reactor'&&t<p.reveal;
+        const reading=id==='sequence'?'VALVES '+p.progress+' / 10':showing?'WATCH THE RELAYS':'REPEAT THE PATTERN';
+        html='<div class="digits">'+reading+'</div><p class="muted">'+(id==='reactor'?'Sequence '+p.level+' / 5':'Accepted: '+p.progress)+'</p><div class="keygrid">'+(p.keys||Array.from({length:9},(_,i)=>i+1)).map(value=>key(value,'key',value,
+          showing?'disabled class="'+(p.cue===value?'relay-lit':'')+'"':id==='sequence'&&value<=p.progress?'disabled class="active"':'')).join('')+'</div>';break;
       }
       case 'sample': {
         const remaining=Math.max(0,Math.ceil((p.ready-t)/1000));
@@ -64,27 +70,36 @@ export function taskPanel(el,initial,now,send) {
       }
       case 'target': {
         const lit=(p.lane+Math.floor(rate(t)/p.period)*2)%5;
-        html='<div class="radar">'+Array.from({length:5},(_,i)=>key(i===lit?'◉':'·','target',i,'class="'+(i===lit?'active':'')+'" aria-label="Target lane '+(i+1)+'"')).join('')+'</div><p class="muted">Tracks acquired: '+p.progress+' / 3</p>';break;
+        const lanes=[[16,35],[37,64],[53,32],[71,62],[85,35]];
+        const [x,y]=lanes[lit];
+        html='<div class="asteroid-field" data-frame="'+Math.floor(rate(t)/p.period)+'">'+key('◈','target',lit,'class="asteroid" style="--x:'+x+'%;--y:'+y+'%" aria-label="Target debris"')+'</div><p class="muted">Tracks acquired: '+p.progress+' / 3</p>';break;
       }
       case 'calibrate':
-        html='<div class="scope"><i></i><b></b></div>'+key('Capture reading','capture','','class="primary"')+'<p class="muted">Stable readings: '+p.progress+' / 3</p>';break;
+        html='<div class="calibration-dial"><b></b></div>'+key('Capture reading','capture','','class="primary"')+'<p class="muted">Stable readings: '+p.progress+' / 3</p>';break;
       default:
         const controls={
-          data:[p.stage===0?'DOWNLOAD TERMINAL':'UPLOAD TERMINAL',p.stage===0?'Hold to download':'Hold to upload','<i class="packet">▤</i><i class="packet">▣</i>'],
+          data:[p.stage===0?'DOWNLOAD TERMINAL':'UPLOAD TERMINAL',p.stage===0?'Download':'Upload','<i class="packet">▤</i><i class="packet">▣</i>'],
           scan:['SUIT SCANNER','Start scan','<i class="scanner"><b></b></i>'],
           waste:['WASTE LOCK','Hold purge lever','<i class="purge-lever"><b></b></i>'],
           fuel:[p.stage%2===0?'FILL FUEL CANISTER':'REFUEL ENGINE','Hold pump','<i class="fuel-cell"><b></b></i><i class="fuel-hose"></i>']
         }[id];
-        html='<div class="hold-stage"><div class="tool-face"><span>'+controls[0]+'</span><div>'+controls[2]+'</div></div><progress value="0" max="1"></progress><button type="button" id="hold-control" class="primary">'+controls[1]+'</button></div>';
+        const leverButton='<button type="button" id="hold-control" class="lever-button" aria-label="Hold purge lever">'+controls[2]+'</button>';
+        const control=id==='waste'?'':'<button type="button" '+(id==='data'?'data-key="begin" '+(p.hold!==null?'disabled':''):'id="hold-control"')+' class="primary">'+controls[1]+'</button>';
+        html='<div class="hold-stage"><div class="tool-face"><span>'+controls[0]+'</span><div>'+(id==='waste'?leverButton:controls[2])+'</div></div><progress value="0" max="1"></progress>'+control+'</div>';
     }
     if(html!==last){hardware.innerHTML=html;last=html;}
-    if(id==='calibrate')hardware.querySelector('.scope b').style.left=((rate(t)+p.offset)%p.period)/p.period*100+'%';
+    if(id==='calibrate')hardware.querySelector('.calibration-dial b').style.rotate=((rate(t)+p.offset)%p.period)/p.period*360+'deg';
     const meter=hardware.querySelector('progress');
     if(meter){
-      const fraction=held?Math.min(1,(t-holdAt)/(id==='data'?2700:1450)):0;
+      const running=id==='data'?p.hold!==null:held;
+      const fraction=running?Math.min(1,(t-(id==='data'?p.hold:holdAt))/(id==='data'?2700:1450)):0;
+      if(id==='data'&&fraction>=1&&!transferEnding){
+        transferEnding=true;
+        queueMicrotask(async()=>{const reply=await submit('finish');if(!reply.ok||reply.error)transferEnding=false;});
+      }
       meter.value=fraction;
       hardware.style.setProperty('--fraction',fraction);
-      hardware.classList.toggle('engaged',held);
+      hardware.classList.toggle('engaged',running);
     }
   }
   async function submit(type,a,b){
@@ -129,7 +144,7 @@ export function taskPanel(el,initial,now,send) {
     const steering=e.target.closest('.steering');
     if(steering){e.preventDefault();steering.setPointerCapture(e.pointerId);setSteering(e);}
     if(e.target.closest('#hold-control')){
-      e.preventDefault();e.target.setPointerCapture(e.pointerId);held=true;holdAt=now();
+      e.preventDefault();e.target.closest('#hold-control').setPointerCapture(e.pointerId);held=true;holdAt=now();
       const reply=await submit('begin');if(!reply.ok)held=false;
     }
     const badge=e.target.closest('#badge');
