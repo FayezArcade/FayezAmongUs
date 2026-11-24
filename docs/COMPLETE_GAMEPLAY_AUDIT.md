@@ -1,5 +1,7 @@
 # Complete gameplay audit
 
+This audit records an earlier baseline. See the [PC handoff](PC_HANDOFF.md) for current release status, verified features and open work.
+
 Status applies to the behavior in the corresponding implementation column. The server tests drive real Socket.IO connections. The four-browser route executes the built client against the standalone relay. Complexity estimates describe the work involved in filling an identified gap.
 
 | Feature | Status | Expected and current behavior | Remaining gap | Priority | Dependencies and complexity |
