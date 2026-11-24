@@ -14,7 +14,7 @@ async function until(fn,limit=6500){
   }
   assert.fail('Expected state transition timed out.');
 }
-async function fixture(t){
+async function fixture(t,count=4){
   let jump=0;
   const server=createGameServer({now:()=>Date.now()+jump});
   server.server.listen(0,'127.0.0.1');await once(server.server,'listening');
@@ -29,11 +29,11 @@ async function fixture(t){
   t.after(async()=>{for(const p of peers)p.socket.disconnect();await server.close();});
   assert.deepEqual(await fetch(root+'/health').then(r=>r.json()),{ok:true,game:'Fayez Crew'});
   assert.equal((await fetch(root+'/socket.io/?EIO=4&transport=polling',{headers:{Origin:'https://untrusted.invalid'}})).status,403);
-  const players=await Promise.all(Array.from({length:4},connect));
+  const players=await Promise.all(Array.from({length:count},connect));
   const [host,...others]=players;
   const session=await host.entry({kind:'create',name:'Ari'});assert.ok(session.ok);
   for(const [i,p] of others.entries())assert.ok((await p.entry({kind:'join',name:['Jun','Mina','Sol'][i],code:session.code})).ok);
-  await until(()=>players.every(p=>p.s?.roster.length===4));
+  await until(()=>players.every(p=>p.s?.roster.length===count));
   const advance=async millis=>{jump+=millis;await wait(105);};
   return {players,host,session,connect,advance};
 }
@@ -51,11 +51,12 @@ test('four private clients play, repair, report, vote, reset and start a second 
   const {players,host,advance,connect,session}=await fixture(t);
   assert.ok(Object.values(host.s.settings.roles).every(r=>!r.enabled));
   assert.equal((await players[1].act('start')).ok,false);
-  assert.equal((await host.act('suit',{color:'mint',hat:1})).ok,false);
+  assert.equal((await host.act('practiceRole',{role:'phantom'})).ok,false);
+  assert.equal((await host.act('suit',{color:'sky',hat:1})).ok,false);
   await drive(host,terminal.x,terminal.y);
   assert.equal((await host.act('suit',{color:players[1].s.self.color,hat:1})).ok,false);
-  assert.ok((await host.act('suit',{color:'mint',hat:2})).ok);
-  await until(()=>players[2].s.roster.some(q=>q.color==='mint'&&q.hat===2));
+  assert.ok((await host.act('suit',{color:'sky',hat:2})).ok);
+  await until(()=>players[2].s.roster.some(q=>q.color==='sky'&&q.hat===2));
   assert.ok((await host.act('settings',{impostors:3})).ok);
   assert.equal((await host.act('start')).ok,false);
   assert.ok((await host.act('settings',{impostors:1,discussion:5,voting:10,shortTasks:1,longTasks:0,commonTasks:2,killCooldown:10,anonymous:false,speed:240})).ok);
@@ -177,4 +178,59 @@ test('engineer hatch travel is gated and the complete assignment pool wins the r
   }));
   await until(()=>players.every(p=>p.s.outcome?.team==='crew'));
   assert.match(host.s.outcome.reason,/restored every/);
+});
+
+test('a solo flight exposes stations and practice tools, survives sabotage, and can relaunch',{timeout:18000},async t=>{
+  const {host,session,advance,connect}=await fixture(t,1);
+  const guest=await connect();
+  assert.ok((await guest.entry({kind:'join',code:session.code,name:'Sol'})).ok);
+  await until(()=>host.s?.roster.length===2);
+  assert.equal((await host.act('start')).ok,false);
+  await guest.act('leave');
+  await until(()=>host.s?.roster.length===1);
+  assert.match(session.code,/^[A-Z2-9]{6}$/);
+  assert.ok((await host.act('start')).ok);
+  await until(()=>host.s.phase==='countdown'&&host.s.solo);
+  await advance(3100);
+  assert.equal(host.s.phase,'reveal');
+  assert.equal(host.s.self.team,'crew');
+  await advance(3500);
+  assert.equal(host.s.phase,'play');
+  assert.equal(host.s.self.assignments.length,tasks.length);
+  const card=tasks.find(q=>q.id==='card').stops[0];
+  await drive(host,940,335);await drive(host,660,335);await drive(host,card.x,card.y);
+  assert.ok((await host.act('taskOpen',{id:'card'})).puzzle);
+  await host.act('taskStep',{type:'begin'});await advance(450);
+  assert.equal((await host.act('taskStep',{type:'swipe'})).done,true);
+  await until(()=>host.s.progress.done===1);
+  assert.ok((await host.act('practiceRole',{role:'scientist'})).ok);
+  assert.ok((await host.act('ability')).ok);
+  await until(()=>host.s.tactical.vitals?.[0]?.alive);
+  assert.equal((await host.act('practiceRole',{role:'judge'})).ok,false);
+  await advance(8000);
+  assert.ok((await host.act('sabotage',{kind:'oxygen'})).ok);
+  await until(()=>host.s.sabotage?.kind==='oxygen');
+  await advance(41000);
+  assert.equal(host.s.phase,'play');
+  assert.equal(host.s.sabotage,null);
+  assert.ok((await host.act('practiceReturn')).ok);
+  await until(()=>host.s.phase==='lobby'&&!host.s.solo);
+  assert.equal(host.s.code,session.code);
+  assert.ok((await host.act('start')).ok);
+  await advance(3200);
+  assert.equal(host.s.round,2);
+  assert.equal(host.s.self.role,null);
+  assert.equal(host.s.progress.done,0);
+});
+
+test('a private dropship supports ten people and rejects an eleventh',async t=>{
+  const {host,connect,session}=await fixture(t,1);
+  const guests=await Promise.all(Array.from({length:10},connect));
+  for(const [i,p] of guests.entries()){
+    const res=await p.entry({kind:'join',code:session.code,name:'Guest '+i});
+    assert.equal(res.ok,i<9);
+    if(!res.ok)assert.match(res.error,/full/i);
+  }
+  await until(()=>host.s.roster.length===10);
+  assert.equal(new Set(host.s.roster.map(p=>p.color)).size,10);
 });

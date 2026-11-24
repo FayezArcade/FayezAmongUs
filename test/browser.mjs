@@ -61,24 +61,42 @@ try {
   await host.page.getByLabel('Nickname').fill(host.name);
   await get(host,'Create room').click();
   await until(()=>host.s?.code,'Create private room');
+  await host.page.context().grantPermissions(['clipboard-read','clipboard-write']);
+  await get(host,'COPY CODE').click();
+  assert.equal(await host.page.evaluate(()=>navigator.clipboard.readText()),host.s.code);
+  await host.page.getByRole('button',{name:'ROOM CODE '+host.s.code}).click();
+  await host.page.getByRole('status').filter({hasText:'Room code copied.'}).waitFor();
+  await shot(host,'15-private-code');
   for(const guest of guests){
     await get(guest,'JOIN ROOM').click();
     await guest.page.getByLabel('Nickname').fill(guest.name);
     await guest.page.getByLabel('Room code').fill(host.s.code);
     await get(guest,'Join room').click();
     await until(()=>guest.s?.code===host.s.code,'Join '+guest.name);
+    if(guest===guests[0]){
+      await until(()=>host.s.roster.length===2,'Two browsers share the dropship');
+      assert.equal(await get(host,'START').isEnabled(),false);
+    }
   }
   await until(()=>players.every(p=>p.s.roster.length===4),'Four crew on board');
-  const old=host.s.self.x;
+  await host.page.keyboard.down('w');
+  await until(()=>host.s.positions.some(p=>p.id===host.s.self.id&&p.moving),'Moving inside the dropship');
+  await shot(host,'16-walking');
+  await host.page.keyboard.up('w');
+  const old=host.s.self.y;
   await drive(host,terminal.x,terminal.y);
-  assert.notEqual(host.s.self.x,old);
-  await until(()=>guests.every(p=>p.s.positions.some(q=>q.id===host.s.self.id&&Math.abs(q.x-host.s.self.x)<6)),'Movement reached remote browsers');
+  assert.notEqual(host.s.self.y,old);
+  await until(()=>guests.every(p=>p.s.positions.some(q=>q.id===host.s.self.id&&dist(q,host.s.self)<7)),'Movement reached remote browsers');
   await shot(host,'02-shuttle');
   await host.page.keyboard.press('e');
   await host.page.getByRole('dialog',{name:'Suit locker'}).waitFor();
-  await get(host,'mint').click();
+  assert.deepEqual(await host.page.locator('.suit-palette button').allTextContents(),[
+    'Red','Blue','Green','Pink','Orange','Yellow','Black','White','Purple','Brown','Cyan','Lime','Maroon','Rose','Banana','Gray','Tan','Coral'
+  ]);
+  assert.equal(await get(host,'Blue').isEnabled(),false);
+  await get(host,'Cyan').click();
   await host.page.getByLabel('Equipment').selectOption('2');
-  await until(()=>guests.every(p=>p.s.roster.some(q=>q.name==='Ari'&&q.color==='mint'&&q.hat===2)),'Suit selection synchronized');
+  await until(()=>guests.every(p=>p.s.roster.some(q=>q.name==='Ari'&&q.color==='sky'&&q.hat===2)),'Suit selection synchronized');
   await shot(host,'03-suit-locker');
   await host.page.keyboard.press('Escape');
   await get(host,'Settings').click();
@@ -93,7 +111,7 @@ try {
   await phantom.getByLabel('Chance (%)').fill('100');
   await shot(host,'04-role-settings');
   await get(host,'Save settings').click();
-  await get(host,'Start flight').click();
+  await get(host,'START').click();
   await until(()=>players.every(p=>p.s.phase==='reveal'),'Round starts on four browsers');
   const infiltrator=players.find(p=>p.s.self.role==='phantom'), crew=players.filter(p=>p!==infiltrator);
   assert.ok(infiltrator&&crew.length===3);
@@ -108,6 +126,11 @@ try {
   await infiltrator.page.keyboard.press('Escape');
   const operator=crew[0];
   await shot(operator,'07a-cafeteria-gameplay');
+  await operator.page.keyboard.down('w');
+  await until(()=>operator.s.positions.some(q=>q.id===operator.s.self.id&&q.moving&&q.direction==='up'),'North-facing walk pose');
+  await shot(operator,'22-characters-walking');
+  await operator.page.keyboard.up('w');
+
   await get(operator,'Map').click();
   await shot(operator,'07-meridian-map');
   await operator.page.keyboard.press('Escape');
@@ -166,6 +189,7 @@ try {
   await reporter.page.getByLabel('Chat message').fill('I found a suit in the cafeteria.');
   await get(reporter,'Send').click();
   await operator.page.getByText('I found a suit in the cafeteria.').waitFor();
+  assert.equal(await reporter.page.locator('.ballot-row img.suit-avatar').count(),4);
   await shot(reporter,'11-meeting');
   await advance(5300);
   await get(reporter,'Skip vote').waitFor();
@@ -185,10 +209,54 @@ try {
   guests[0].s=null;
   await guests[0].page.reload();
   await until(()=>guests[0].s?.roster.some(q=>q.name===guests[0].name&&q.online),'Guest resumes after reload');
-  await get(host,'Start flight').click();
+  await get(host,'START').click();
   await until(()=>players.every(p=>p.s.round===2&&p.s.phase==='reveal'),'Second round starts in same room');
+  const solo=await player('Nova');
+  await get(solo,'CREATE ROOM').click();
+  await solo.page.getByLabel('Nickname').fill(solo.name);
+  await get(solo,'Create room').click();
+  await until(()=>solo.s?.roster.length===1,'Single player lobby');
+  const code=solo.s.code;
+  await drive(solo,terminal.x,terminal.y);
+  await solo.page.keyboard.press('e');
+  await solo.page.getByRole('dialog',{name:'Suit locker'}).waitFor();
+  assert.equal(await solo.page.locator('.suit-palette button:enabled').count(),18);
+  await shot(solo,'21-color-grid');
+  await solo.page.keyboard.press('Escape');
+  await get(solo,'START').click();
+  await solo.page.getByRole('heading',{name:/^[1-3]$/}).waitFor();
+  await shot(solo,'17-solo-countdown');
+  await advance(3100);
+  await solo.page.getByRole('heading',{name:'Crewmate',exact:true}).waitFor();
+  await shot(solo,'18-solo-role');
+  await advance(3600);
+  await until(()=>solo.s.phase==='play'&&solo.s.solo,'Solo map stays playable');
+  await shot(solo,'19-solo-gameplay');
+  for(const [key,direction] of [['a','left'],['d','right'],['w','up'],['s','down']]){
+    await solo.page.keyboard.down(key);
+    await until(()=>solo.s.positions.some(q=>q.id===solo.s.self.id&&q.moving&&q.direction===direction),'Walk '+direction);
+    await solo.page.keyboard.up(key);
+  }
+  await until(()=>solo.s.positions.some(q=>q.id===solo.s.self.id&&!q.moving&&q.direction==='down'),'Standing retains last facing');
+
+  await get(solo,'Map').click();
+  await solo.page.getByRole('dialog',{name:'Meridian deck plan'}).waitFor();
+  await solo.page.keyboard.press('Escape');
+  await get(solo,'Test controls').click();
+  await solo.page.getByLabel('Practice role').selectOption('scientist');
+  await get(solo,'Apply role').click();
+  await get(solo,'Ability').click();
+  await get(solo,'Remote vitals').click();
+  await until(()=>solo.s.tactical.vitals?.[0]?.alive,'Solo scientist can test vitals');
+  await solo.page.keyboard.press('Escape');
+  await get(solo,'Test controls').click();
+  await shot(solo,'20-solo-controls');
+  await get(solo,'Return to dropship').click();
+  await until(()=>solo.s.phase==='lobby'&&solo.s.code===code,'Solo returns to the same private room');
+  await get(solo,'START').click();
+  await until(()=>solo.s.phase==='countdown','Solo can start again');
   assert.deepEqual(runtimeErrors,[]);
-  console.log('Four isolated Chromium contexts passed the two-round multiplayer journey.');
+  console.log('Four independent Chromium contexts passed multiplayer, and a fifth passed solo practice and replay.');
 } finally {
   await browser?.close();
   await close();
