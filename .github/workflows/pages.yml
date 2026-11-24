@@ -1,6 +1,17 @@
 name: Publish Fayez Crew
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - client/**
+      - shared/**
+      - server/**
+      - index.html
+      - public/**
+      - package*.json
+      - vite.config.js
+      - .github/workflows/pages.yml
 permissions:
   contents: read
   pages: write
@@ -24,8 +35,21 @@ jobs:
       - name: Check the production relay
         run: |
           case "$VITE_SERVER_URL" in https://*) ;; *) echo "Set FAYEZ_SERVER_URL to the HTTPS Render origin."; exit 1;; esac
-          curl --retry 3 --max-time 60 --fail --silent --show-error "${VITE_SERVER_URL%/}/health" |
-            node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{let d=JSON.parse(s);if(!d.ok||d.game!=="Fayez Crew")process.exit(1)})'
+          expected="$(node --input-type=module -e "import {deckRevision} from './shared/deck.js'; console.log(deckRevision)")"
+          ready=false
+          for attempt in {1..15}; do
+            if health="$(curl --max-time 12 --fail --silent --show-error "${VITE_SERVER_URL%/}/health")" &&
+              printf '%s' "$health" | jq -e --arg deck "$expected" '.ok and .game == "Fayez Crew" and .deck == $deck' >/dev/null; then
+              ready=true
+              break
+            fi
+            echo "Waiting for Render to serve deck $expected."
+            sleep 10
+          done
+          if [ "$ready" != true ]; then
+            echo "Render did not report deck $expected. Deploy the current main branch to Render and run this workflow again."
+            exit 1
+          fi
           curl --retry 3 --max-time 30 --fail --silent --show-error -D /tmp/fayez-cors -o /dev/null \
             -H 'Origin: https://fayezarcade.github.io' "${VITE_SERVER_URL%/}/socket.io/?EIO=4&transport=polling"
           grep -i '^access-control-allow-origin: https://fayezarcade.github.io' /tmp/fayez-cors

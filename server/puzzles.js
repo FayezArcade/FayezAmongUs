@@ -10,13 +10,13 @@ const shuffle = values => {
   return result;
 };
 export const randomOrder=shuffle;
-export function puzzle(id,stage,now) {
-  const p = {id,stage,start:now,progress:0};
-  switch(id) {
+export function puzzle(id,stage,now,instrument=id) {
+  const p = {id,instrument,stage,start:now,progress:0};
+  switch(instrument) {
     case 'wire': return {...p,left:wires,right:shuffle(wires)};
     case 'sequence': {const sequence=Array.from({length:10},(_,i)=>i+1);return {...p,sequence,keys:shuffle(sequence)};}
     case 'chart': return {...p,waypoints:[40,randomInt(19,56),randomInt(45,79),randomInt(24,59),60]};
-    case 'reactor': return {...p,sequence:Array.from({length:5},()=>randomInt(1,10)),reveal:now+3500};
+    case 'reactor': return {...p,sequence:Array.from({length:5},()=>randomInt(1,10)),level:1,reveal:now+1250};
     case 'sample': return {...p,odd:randomInt(4),ready:now+4800};
     case 'target': return {...p,lane:randomInt(5),period:850};
     case 'card': return {...p,from:null};
@@ -31,15 +31,25 @@ export function stepPuzzle(p,action,now) {
   if (!action || typeof action!=='object') return {error:'Invalid input'};
   const {type,a,b}=action;
   const wrong=(error)=>({error});
-  switch(p.id) {
+  switch(p.instrument) {
     case 'wire':
       if (type!=='pair'||!p.left.includes(a)||a!==b||p.matched?.includes(a)) return wrong('Match the cable colors.');
       p.matched=[...(p.matched||[]),a];
       return {done:p.matched.length===4};
-    case 'sequence': case 'reactor':
-      if (type!=='key'||now<(p.reveal||0)||!Number.isInteger(a)||a<1||a>(p.id==='sequence'?10:9)) return wrong('Wait for the relay display.');
-      if(a!==p.sequence[p.progress]) {p.progress=0;if(p.id==='reactor') p.reveal=now+3500;return wrong('Sequence reset.');}
+    case 'sequence':
+      if(type!=='key'||!Number.isInteger(a)||a<1||a>10)return wrong('Select a valve.');
+      if(a!==p.sequence[p.progress]){p.progress=0;return wrong('Sequence reset.');}
       return {done:++p.progress===p.sequence.length};
+    case 'reactor':
+      if(type!=='key'||now<p.reveal||!Number.isInteger(a)||a<1||a>9)return wrong('Wait for the relay display.');
+      if(a!==p.sequence[p.progress]){
+        p.progress=0;p.reveal=now+750*p.level+500;
+        return wrong('Watch the sequence again.');
+      }
+      if(++p.progress<p.level)return {};
+      if(p.level===p.sequence.length)return {done:true};
+      p.level++;p.progress=0;p.reveal=now+750*p.level+500;
+      return {};
     case 'chart':
       if(type!=='waypoint'||a!==p.progress)return wrong('Follow the marked route in order.');
       return {done:++p.progress===p.waypoints.length};
@@ -58,7 +68,8 @@ export function stepPuzzle(p,action,now) {
       if(type!=='swipe'||p.from===null) return wrong('Start at the left edge.');
       {const elapsed=now-p.from;p.from=null;return elapsed>=280&&elapsed<=1450?{done:true}:wrong('Swipe at a steady speed.');}
     case 'align': case 'nav': case 'route':
-      if(type!=='set'||!Number.isFinite(a)||Math.abs(a-p.target)>5||(p.id==='nav'&&(!Number.isFinite(b)||Math.abs(b-p.targetY)>5))) return wrong('Match the highlighted position.');
+      if(p.instrument==='route'&&p.stage===1)return type==='accept'?{done:true}:wrong('Engage the receiving relay.');
+      if(type!=='set'||!Number.isFinite(a)||Math.abs(a-p.target)>5||(p.instrument==='nav'&&(!Number.isFinite(b)||Math.abs(b-p.targetY)>5))) return wrong('Match the highlighted position.');
       return {done:true};
     case 'shield':
       if(type!=='toggle'||!Number.isInteger(a)||a<0||a>=p.active.length) return wrong('Select a shield cell.');
@@ -76,14 +87,18 @@ export function stepPuzzle(p,action,now) {
       return {done:p.debris.length===0};
     default:
       if(type==='begin') {p.hold=now;return {};}
-      if(type!=='finish'||p.hold===null||now-p.hold<(p.id==='data'?2700:1450)) return wrong('Keep the control engaged.');
+      if(type!=='finish'||p.hold===null||now-p.hold<(p.instrument==='data'?2700:1450)) return wrong('Keep the control engaged.');
       return {done:true};
   }
 }
 export function publicPuzzle(p,now) {
   if(!p) return null;
   const copy={...p};
-  if(p.id==='sample'&&now<p.ready) delete copy.odd;
-  if(p.id==='reactor'&&now>=p.reveal) delete copy.sequence;
+  if(p.instrument==='sample'&&now<p.ready) delete copy.odd;
+  if(p.instrument==='reactor'){
+    const cue=Math.floor((now-(p.reveal-750*p.level-500))/750);
+    delete copy.sequence;
+    if(now<p.reveal&&cue>=0&&cue<p.level)copy.cue=p.sequence[cue];
+  }
   return copy;
 }

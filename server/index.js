@@ -3,6 +3,7 @@ import {readFile,stat} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {Server} from 'socket.io';
+import {deckRevision} from '../shared/deck.js';
 import {attach} from './game.js';
 
 const staticRoot=fileURLToPath(new URL('../dist/',import.meta.url));
@@ -12,7 +13,7 @@ export function createGameServer({origins=process.env.CORS_ORIGIN,serve=process.
   const server=createServer(async(req,res)=>{
     const url=new URL(req.url,'http://localhost');
     if(url.pathname==='/health'){
-      res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'}).end(JSON.stringify({ok:true,game:'Fayez Crew'}));
+      res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'}).end(JSON.stringify({ok:true,game:'Fayez Crew',deck:deckRevision}));
       return;
     }
     if(serve&&req.method==='GET'){

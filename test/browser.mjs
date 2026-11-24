@@ -4,7 +4,9 @@ import {mkdir} from 'node:fs/promises';
 import {setTimeout as wait} from 'node:timers/promises';
 import {chromium} from 'playwright-core';
 import {createGameServer} from '../server/index.js';
-import {dist,terminal,tasks} from '../shared/deck.js';
+import {deck,contains,dist,terminal,tasks,repairs} from '../shared/deck.js';
+
+import {deckWaypoints} from './deck-route.mjs';
 
 let offset=0;
 const {server,close}=createGameServer({now:()=>Date.now()+offset,serve:true});
@@ -30,10 +32,19 @@ try {
   };
   const shot=async(p,name)=>p.page.screenshot({path:path+'/'+name+'.png',animations:'allow',timeout:10000});
   const get=(p,text)=>p.page.getByRole('button',{name:text,exact:true}).first();
+  const stationMarker=(p,station)=>p.page.locator('.blue-map canvas').evaluate((canvas,point)=>{
+    const ctx=canvas.getContext('2d'),x=Math.round(point.x*canvas.width/1365),y=Math.round(point.y*canvas.height/900);
+    const pixels=ctx.getImageData(x-5,y-5,11,11).data;
+    for(let i=0;i<pixels.length;i+=4)if(pixels[i]===243&&pixels[i+1]===207&&pixels[i+2]===98)return true;
+    return false;
+  },station);
   async function until(fn,label,limit=10000){
     const end=Date.now()+limit;
     while(Date.now()<end){const v=fn();if(v)return v;await wait(40);}
     assert.fail(label);
+  }
+  async function navigate(p,point){
+    for(const q of deckWaypoints(p.s.self,point))await drive(p,q.x,q.y);
   }
   async function drive(p,x,y){
     const keys=new Set();
@@ -41,10 +52,10 @@ try {
       await until(()=>{
         if(!p.s)return false;
         const q=p.s.self;
-        if(dist(q,{x,y})<19)return true;
+        if(dist(q,{x,y})<10)return true;
         const want=new Set();
-        if(Math.abs(x-q.x)>13)want.add(x>q.x?'d':'a');
-        if(Math.abs(y-q.y)>13)want.add(y>q.y?'s':'w');
+        if(Math.abs(x-q.x)>6)want.add(x>q.x?'d':'a');
+        if(Math.abs(y-q.y)>6)want.add(y>q.y?'s':'w');
         for(const k of keys)if(!want.has(k)){void p.page.keyboard.up(k);keys.delete(k);}
         for(const k of want)if(!keys.has(k)){void p.page.keyboard.down(k);keys.add(k);}
         return false;
@@ -125,6 +136,27 @@ try {
   await shot(infiltrator,'06-phantom-ability');
   await infiltrator.page.keyboard.press('Escape');
   const operator=crew[0];
+  await advance(13500);
+  await navigate(operator,deck.cafe);
+  await operator.page.keyboard.press('e');
+  await until(()=>players.every(p=>p.s.phase==='meeting'&&p.s.meeting.kind==='emergency'),'Server starts the same emergency for all four clients');
+  assert.equal(new Set(players.map(p=>p.s.meeting.start)).size,1);
+  for(const p of players)await p.page.getByRole('heading',{name:'Emergency meeting',exact:true}).waitFor({timeout:3000});
+  await wait(730);
+  await shot(operator,'23-emergency-intro');
+  await advance(1950);
+  await operator.page.getByText(/^DISCUSSION:/).waitFor();
+  assert.equal(await operator.page.getByRole('img',{name:'Body reporter',exact:true}).count(),0);
+  assert.equal(await get(operator,'Skip Vote').count(),0);
+  await advance(5200);
+  for(const p of players){
+    await get(p,'Skip Vote').click();
+    await get(p,'Confirm vote').click();
+  }
+  await until(()=>players.every(p=>p.s.phase==='verdict'&&p.s.meeting.result.counts.skip===4),'All emergency ballots skipped');
+  await advance(5000);
+  await until(()=>players.every(p=>p.s.phase==='play'),'All four return after emergency');
+
   await shot(operator,'07a-cafeteria-gameplay');
   await operator.page.keyboard.down('w');
   await until(()=>operator.s.positions.some(q=>q.id===operator.s.self.id&&q.moving&&q.direction==='up'),'North-facing walk pose');
@@ -135,9 +167,10 @@ try {
   await shot(operator,'07-meridian-map');
   await operator.page.keyboard.press('Escape');
   const wire=tasks.find(t=>t.id==='wire').stops[0];
-  await drive(operator,940,335);await drive(operator,940,570);await drive(operator,wire.x,wire.y);
+  await navigate(operator,wire);
+  await shot(operator,'24-electrical');
   await operator.page.keyboard.press('e');
-  await operator.page.getByRole('dialog',{name:'Patch the cable harness'}).waitFor();
+  await operator.page.getByRole('dialog',{name:'Fix Wiring'}).waitFor();
   for(const c of ['coral','teal','gold','iris']){
     const lead=operator.page.locator('[data-key=left][data-value='+c+']');
     const socket=operator.page.locator('[data-key=right][data-value='+c+']');
@@ -147,14 +180,18 @@ try {
       await lead.click();
       await socket.click();
     }
-    await until(()=>operator.s.progress.done===1||operator.s.puzzle?.matched?.includes(c),'Cable pair '+c);
+    await until(()=>operator.s.self.assignments.some(a=>a.id==='wire'&&a.stage===1)||operator.s.puzzle?.matched?.includes(c),'Cable pair '+c);
     if(c==='teal')await shot(operator,'08-cable-task');
   }
-  await until(()=>operator.s.progress.done===1,'Task progress increased');
+  await until(()=>operator.s.self.assignments.some(a=>a.id==='wire'&&a.stage===1&&!a.done),'Wiring advances to the next room');
+  assert.equal(operator.s.progress.done,0);
   const badge=tasks.find(t=>t.id==='card').stops[0];
-  await drive(operator,940,570);await drive(operator,940,335);await drive(operator,660,335);await drive(operator,badge.x,badge.y);
+  await navigate(operator,badge);
+  await get(operator,'Map').click();
+  assert.equal(await stationMarker(operator,badge),true);
+  await operator.page.keyboard.press('Escape');
   await operator.page.keyboard.press('e');
-  await operator.page.getByRole('dialog',{name:'Read the access badge'}).waitFor();
+  await operator.page.getByRole('dialog',{name:'Swipe Card'}).waitFor();
   await shot(operator,'09-badge-task');
   const badgeButton=operator.page.getByRole('button',{name:'Swipe access badge'});
   const bounds=await badgeButton.boundingBox(), box=await operator.page.locator('.reader').boundingBox();
@@ -163,13 +200,16 @@ try {
   await wait(350);
   await operator.page.mouse.move(box.x+box.width-15,bounds.y+bounds.height/2,{steps:5});
   await operator.page.mouse.up();
-  await until(()=>operator.s.progress.done===2,'Badge credited by server');
+  await until(()=>operator.s.progress.done===1,'Badge credited by server');
+  await get(operator,'Map').click();
+  assert.equal(await stationMarker(operator,badge),false);
+  await operator.page.keyboard.press('Escape');
   await advance(16000);
   await get(infiltrator,'Sabotage').click();
   await shot(infiltrator,'10a-sabotage-map');
   await get(infiltrator,'LIGHTS').click();
   await until(()=>crew.every(p=>p.s.sabotage?.kind==='lights'),'Lights disruption reaches crew');
-  await drive(operator,660,335);await drive(operator,940,335);await drive(operator,940,607);
+  await navigate(operator,repairs.lights[0]);
   await operator.page.keyboard.press('e');
   await operator.page.getByRole('dialog',{name:'Lights recovery'}).waitFor();
   await shot(operator,'10-sabotage-repair');
@@ -177,28 +217,38 @@ try {
   for(const i of switches)await operator.page.locator('[data-switch="'+i+'"]').click();
   await until(()=>!operator.s.sabotage,'Repair restores lights');
   const [,victim,reporter]=crew;
-  for(const p of [infiltrator,victim,reporter])await drive(p,940,335);
+  for(const p of [infiltrator,victim,reporter])await navigate(p,deck.cafe);
   // Keep the reporter and the intended target within strike/report range but apart.
-  await drive(reporter,1024,335);
+  await navigate(reporter,{x:deck.cafe.x+84,y:deck.cafe.y});
   await infiltrator.page.keyboard.press('q');
   await until(()=>!victim.s.self.alive,'Victim becomes ghost');
-  await drive(reporter,victim.s.self.x,victim.s.self.y);
+  await navigate(reporter,victim.s.self);
   await until(()=>reporter.s.bodies.some(b=>b.id===victim.s.self.id&&dist(b,reporter.s.self)<60),'Incident is within report range');
   await reporter.page.keyboard.press('r');
-  await until(()=>players.every(p=>p.s.phase==='meeting'),'Incident opens meeting');
+  await until(()=>players.every(p=>p.s.phase==='meeting'&&p.s.meeting.kind==='report'),'Incident opens the same meeting on all clients');
+  assert.ok(players.every(p=>p.s.meeting.caller===reporter.s.self.id&&p.s.meeting.introUntil===reporter.s.meeting.introUntil));
+  for(const p of players)await p.page.getByRole('heading',{name:'Body reported',exact:true}).waitFor({timeout:3000});
+  await shot(reporter,'25-report-intro');
+  await advance(1950);
+  for(const p of players){
+    await p.page.getByText(/^DISCUSSION:/).waitFor();
+    await p.page.locator('.ballot-row').filter({hasText:reporter.name}).getByRole('img',{name:'Body reporter',exact:true}).waitFor();
+  }
   await reporter.page.getByLabel('Chat message').fill('I found a suit in the cafeteria.');
   await get(reporter,'Send').click();
   await operator.page.getByText('I found a suit in the cafeteria.').waitFor();
   assert.equal(await reporter.page.locator('.ballot-row img.suit-avatar').count(),4);
   await shot(reporter,'11-meeting');
   await advance(5300);
-  await get(reporter,'Skip vote').waitFor();
+  await get(reporter,'Skip Vote').waitFor();
   await shot(reporter,'12-ballot');
   for(const p of [reporter,operator]){
     const row=p.page.locator('.ballot-row').filter({hasText:infiltrator.name});
     await row.getByRole('button',{name:'Vote',exact:true}).click();
+    await get(p,'Confirm vote').click();
   }
-  await get(infiltrator,'Skip vote').click();
+  await get(infiltrator,'Skip Vote').click();
+  await get(infiltrator,'Confirm vote').click();
   await until(()=>players.every(p=>p.s.phase==='verdict'),'Ballot ejection on all browsers');
   await shot(reporter,'13-vote-result');
   await advance(4900);
@@ -242,6 +292,15 @@ try {
   await get(solo,'Map').click();
   await solo.page.getByRole('dialog',{name:'Meridian deck plan'}).waitFor();
   await solo.page.keyboard.press('Escape');
+  await get(solo,'Test controls').click();
+  await get(solo,'Deck overview').click();
+  await shot(solo,'26-full-deck');
+  await solo.page.keyboard.press('Escape');
+  for(const [room,file] of [[deck.storage,'29-storage'],[deck.electrical,'30-solo-electrical'],[deck.reactor,'27-reactor'],[deck.nav,'28-navigation']]){
+    await navigate(solo,room);
+    assert.ok(contains(room,solo.s.self.x,solo.s.self.y));
+    await shot(solo,file);
+  }
   await get(solo,'Test controls').click();
   await solo.page.getByLabel('Practice role').selectOption('scientist');
   await get(solo,'Apply role').click();

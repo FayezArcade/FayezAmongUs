@@ -39,7 +39,7 @@ The server tests cover room isolation, role secrecy, authoritative actions, and 
 No production relay or Pages release is recorded here.
 
 1. In the Render dashboard, create a Blueprint from [this repository](https://github.com/FayezArcade/FayezAmongUs) on `main`. Render reads `render.yaml`. It uses one instance, the Node HTTP server, `/health` and the Pages CORS origin. Rooms live in process memory. Render restarts, redeploys and sleeping instances discard active room state.
-2. Wait for Render to report Live. Open `https://<service>.onrender.com/health` and confirm it returns `{"ok":true,"game":"Fayez Crew"}`. Keep the HTTPS origin without a path as the next step's value.
+2. Wait for Render to report Live. Open `https://<service>.onrender.com/health` and confirm it returns `{"ok":true,"game":"Fayez Crew","deck":"meridian-2"}`. Keep the HTTPS origin without a path as the next step's value.
 3. In GitHub repository settings, select **Pages → Build and deployment → GitHub Actions**. In **Secrets and variables → Actions → Variables**, create `FAYEZ_SERVER_URL` with the Render HTTPS origin. `CORS_ORIGIN` must contain the frontend origin only, such as `https://fayezarcade.github.io`, without the repository path.
 4. Run **Actions → Publish Fayez Crew → Run workflow**. The workflow waits for the relay and checks its cross-origin handshake before publishing the client. HTTPS upgrades Socket.IO connections to secure WebSockets automatically.
 5. Open the URL reported by the successful Pages deployment. Test creation and joining from separate browser sessions before sharing the link. The room form displays a connection state while Render wakes up.
@@ -53,6 +53,7 @@ To serve a built client locally with the standalone relay, run `npm run build` a
 - [Flight manual and concept art](docs/VISUAL-DESIGN.md)
 - [Dropship update and screenshots](docs/DROPSHIP_UPDATE.md)
 - [Character design and color order](docs/CHARACTERS.md)
+- [Deck, meetings, and character scale comparisons](docs/MERIDIAN-DECK.md)
 - [Earlier match screenshots](docs/screenshots/)
 
 `client` contains the Vite UI and Canvas renderer. `server` owns the match and Socket.IO protocol. `shared` holds the deck data, puzzle stations and role definitions. All ship art, suits, UI and cues were made for this project.

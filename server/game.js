@@ -1,5 +1,5 @@
 import {randomBytes,randomInt} from 'node:crypto';
-import {colors,hats,rooms,doors,vents,tasks,repairs,dist,walkable,spawn,terminal,meetingPoint,contains} from '../shared/deck.js';
+import {colors,hats,rooms,deckRevision,deck,doors,vents,ventDestinations,tasks,repairs,dist,walkable,spawn,terminal,meetingPoint,emergencyRange,contains} from '../shared/deck.js';
 import {special,defaultRoles,signals} from '../shared/roles.js';
 import {puzzle,publicPuzzle,stepPuzzle,randomOrder} from './puzzles.js';
 
@@ -7,7 +7,7 @@ const fail = message => {throw new Error(message);};
 const valid = (condition,message) => {if(!condition) fail(message);};
 const cap = (x,min,max,fallback) => Number.isFinite(x)?Math.max(min,Math.min(max,Math.round(x))):fallback;
 const settingKeys = {impostors:[1,3],discussion:[5,90],voting:[10,120],killCooldown:[10,60],meetingCooldown:[5,60],shortTasks:[0,8],longTasks:[0,5],commonTasks:[0,2],crewVision:[120,450],speed:[95,240]};
-const settings = () => ({impostors:1,discussion:18,voting:35,killCooldown:20,meetingCooldown:12,shortTasks:3,longTasks:1,commonTasks:1,crewVision:290,speed:175,anonymous:true,confirm:true,roles:defaultRoles()});
+const settings = () => ({impostors:1,discussion:30,voting:60,early:true,killCooldown:20,meetingCooldown:12,shortTasks:3,longTasks:1,commonTasks:1,crewVision:290,speed:175,anonymous:true,confirm:true,roles:defaultRoles()});
 const alphabet='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const point=(p)=>({x:Math.round(p.x),y:Math.round(p.y)});
 const label=(p)=>({id:p.id,name:p.name,color:p.color,hat:p.hat,online:Boolean(p.socket)});
@@ -40,7 +40,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
   }
   function bind(socket,r,p) {
     p.socket=socket.id;p.disconnected=null;bound.set(socket.id,{r,p});
-    return {code:r.code,id:p.id,token:p.token};
+    return {code:r.code,id:p.id,token:p.token,deck:deckRevision};
   }
   function add(socket,r,name) {
     valid(!bound.has(socket.id),'Leave the current room first.');
@@ -59,7 +59,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
   }
   function updateSettings(r,req) {
     for(const [key,[lo,hi]] of Object.entries(settingKeys)) r.settings[key]=cap(req?.[key],lo,hi,r.settings[key]);
-    for(const key of ['anonymous','confirm']) if(typeof req?.[key]==='boolean')r.settings[key]=req[key];
+    for(const key of ['anonymous','confirm','early']) if(typeof req?.[key]==='boolean')r.settings[key]=req[key];
     for(const [key,value] of Object.entries(r.settings.roles)) {
       const role=req?.roles?.[key];
       if(!role)continue;
@@ -136,9 +136,11 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     valid(r.phase==='play'&&p.ventIndex===null&&a&&stop&&dist(p,stop)<57&&(p.alive?hasLine(p,stop,Object.keys(r.doors).map(Number)):true)&&r.sabotage?.kind!=='comms','Move to the marked station. Repair comms if needed.');
     return a;
   }
-  function assembly(r,p,t,subject) {
+  function assembly(r,p,t,kind,body) {
     r.phase='meeting';
-    r.meeting={subject,caller:p.id,start:t,voteAt:t+r.settings.discussion*1000,end:t+(r.settings.discussion+r.settings.voting)*1000,votes:{},judge:null,result:null};
+    const introUntil=t+1800, voteAt=introUntil+r.settings.discussion*1000;
+    r.meeting={kind,caller:p.id,incident:body?{name:body.name,color:body.color}:null,
+      start:t,introUntil,voteAt,end:voteAt+r.settings.voting*1000,votes:{},judge:null,result:null};
     r.bodies=[];r.chat=[];r.doors={};
     if(r.sabotage?.until)r.sabotage=null;
     for(const q of r.players){q.input={x:0,y:0};q.opened=null;q.effect=null;q.ventIndex=null;}
@@ -229,6 +231,10 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       case 'practiceClear':
         valid(practice(r,p),'System reset is available only in a solo test.');
         Object.assign(r,{sabotage:null,doors:{},sabotageAt:t});break;
+      case 'practiceMeeting':
+        valid(practice(r,p),'Meeting drills require a solo test.');
+        valid(req?.kind==='emergency'||req?.kind==='report','Choose a meeting drill.');
+        assembly(r,p,t,req.kind);break;
       case 'practiceReturn':
         valid(practice(r,p),'Only the solo tester can return to the dropship.');reset(r);break;
       case 'reset': valid(isHost&&r.phase==='result','Only the captain can re-dock.');reset(r);break;
@@ -240,7 +246,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       }
       case 'taskOpen': {
         const a=usable(r,p,req?.id);
-        if(p.opened?.id!==a.id||p.opened.stage!==a.stage)p.opened=puzzle(a.id,a.stage,t);
+        if(p.opened?.id!==a.id||p.opened.stage!==a.stage)p.opened=puzzle(a.id,a.stage,t,tasks.find(task=>task.id===a.id).instrument);
         return {puzzle:publicPuzzle(p.opened,t)};
       }
       case 'taskClose': p.opened=null;break;
@@ -279,7 +285,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
           p.ventIndex=here;
         }else{
           const here=p.ventIndex;
-          valid(Number.isInteger(dest)&&(dest===(here+1)%vents.length||dest===(here+vents.length-1)%vents.length),'Choose a connected hatch.');
+          valid(Number.isInteger(dest)&&ventDestinations(here).includes(dest),'Choose a connected hatch.');
           valid(!r.players.some(q=>q.opened?.id==='clean'&&dist(q,vents[dest])<57),'That hatch is being serviced.');
           p.ventIndex=dest;
         }
@@ -325,30 +331,30 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       case 'report': {
         const body=r.bodies.find(b=>b.id===req?.id&&dist(p,b)<72&&hasLine(p,b,blocked));
         valid(r.phase==='play'&&p.alive&&p.ventIndex===null&&body,'No incident is close enough.');
-        assembly(r,p,t,'Incident reported');break;
+        assembly(r,p,t,'report',body);break;
       }
       case 'emergency':
-        valid(r.phase==='play'&&!r.solo&&p.alive&&p.ventIndex===null&&p.emergencies>0&&!r.sabotage&&t>=r.meetingAt&&dist(p,meetingPoint)<74,'Intercom is unavailable.');
-        p.emergencies--;assembly(r,p,t,'Emergency assembly');break;
+        valid(r.phase==='play'&&p.alive&&p.ventIndex===null&&p.emergencies>0&&!r.sabotage&&t>=r.meetingAt&&dist(p,meetingPoint)<emergencyRange,'Intercom is unavailable.');
+        p.emergencies--;assembly(r,p,t,'emergency');break;
       case 'vote': {
         const to=req?.id, m=r.meeting;
         valid(r.phase==='meeting'&&p.alive&&t>=m.voteAt&&t<m.end&&!Object.hasOwn(m.votes,p.id),'Your ballot is unavailable.');
-        valid(to==='skip'||r.players.some(q=>q.id===to&&active(q)&&q.socket),'Choose a connected living player.');
+        valid(to==='skip'||!r.solo&&r.players.some(q=>q.id===to&&active(q)&&q.socket),'Choose a connected living player.');
         m.votes[p.id]=to;break;
       }
       case 'chat': {
         valid(r.phase==='meeting'||r.phase==='lobby','The intercom is closed.');
         const message=typeof req?.text==='string'?req.text.trim().slice(0,180):'';
         valid(message&&t-(p.chatAt||0)>=950,'Wait briefly before sending another message.');
-        p.chatAt=t;r.chat.push({id:p.id,name:p.name,text:message,ghost:!p.alive,at:t});r.chat=r.chat.slice(-64);break;
+        p.chatAt=t;r.chat.push({id:p.id,name:p.name,color:p.color,text:message,ghost:!p.alive,at:t});r.chat=r.chat.slice(-64);break;
       }
       case 'ability': privateAbility(r,p,req,t);break;
       case 'monitor': {
-        const site=req?.kind==='command'?rooms[4]:rooms[8];
+        const site=req?.kind==='command'?deck.admin:deck.security;
         valid(r.phase==='play'&&p.alive&&p.ventIndex===null&&dist(p,site)<87&&r.sabotage?.kind!=='comms','Approach an online console.');
         if(req?.kind==='command')return {readings:rooms.map(q=>[q.name,r.players.filter(p=>active(p)&&p.ventIndex===null&&contains(q,p.x,p.y)).length])};
         valid(req?.kind==='security','Unknown console.');
-        return {readings:[rooms[0],rooms[3],rooms[5],rooms[9],rooms[10]].map(q=>[q.name,r.players.filter(p=>active(p)&&p.ventIndex===null&&contains(q,p.x,p.y)&&p.effect?.id!=='phantom').map(p=>{
+        return {readings:[deck.nav,deck.med,deck.cafe,deck.storage,deck.electrical].map(q=>[q.name,r.players.filter(p=>active(p)&&p.ventIndex===null&&contains(q,p.x,p.y)&&p.effect?.id!=='phantom').map(p=>{
           const mask=p.effect?.id==='shapeshifter'?r.players.find(v=>v.id===p.effect.target):null;
           return (mask||p).name;
         }).join(', ')||'Clear'])};
@@ -388,8 +394,8 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         allies:p.team==='impostor'?r.players.filter(q=>q.team==='impostor').map(q=>q.id):[]},
       bodies:r.bodies.filter(b=>dist(p,b)<vision&&(!p.alive||hasLine(p,b,blocked))).map(({expires,created,room,...b})=>({...b,decay:expires?Math.min(3,Math.floor((t-created)/(expires-created)*4)):0})),
       vision,doors:blocked,sabotage,alerts:r.alerts,progress:progress(r),puzzle:publicPuzzle(p.opened,t),tactical,
-      meeting:m&&{subject:m.subject,caller:m.caller,start:m.start,voteAt:m.voteAt,end:m.end,
-        voted:r.settings.anonymous?undefined:Object.keys(m.votes),myVote:m.votes[p.id],result:m.result},
+      meeting:m&&{kind:m.kind,caller:m.caller,incident:m.incident,start:m.start,introUntil:m.introUntil,voteAt:m.voteAt,end:m.end,
+        voted:Object.keys(m.votes),myVote:m.votes[p.id],result:m.result},
       chat:r.chat.filter(msg=>!msg.ghost||!p.alive),outcome:r.outcome};
   }
   function release(socket,permanent=false) {
@@ -417,6 +423,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       const t=now();
       valid(t-entryAt>380,'Please wait before trying again.');
       entryAt=t;
+      valid(req?.deck===deckRevision,'This client and the relay use different deck versions. Reload the updated game.');
       if(req?.kind==='create'){
         valid(roomsByCode.size<maxRooms,'All shuttles are currently in use.');
         const r={code:roomCode(),players:[],host:null,settings:settings(),phase:'lobby',chat:[],doors:{},bodies:[],alerts:[]};
@@ -493,7 +500,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         else result(r,'impostor','The ship could not recover from the '+r.sabotage.kind+' emergency.');
       }
       if(r.phase==='play')win(r);
-      if(r.phase==='meeting'&&(t>=r.meeting.end||t>=r.meeting.voteAt&&r.players.filter(p=>active(p)&&p.socket).every(p=>Object.hasOwn(r.meeting.votes,p.id))))tally(r,t);
+      if(r.phase==='meeting'&&(t>=r.meeting.end||r.settings.early&&t>=r.meeting.voteAt&&r.players.filter(p=>active(p)&&p.socket).every(p=>Object.hasOwn(r.meeting.votes,p.id))))tally(r,t);
       if(r.phase==='verdict'&&t>=r.until){
         r.phase='play';r.meeting=null;r.meetingAt=t+r.settings.meetingCooldown*1000;r.doors={};
         r.players.forEach((p,i)=>{Object.assign(p,spawn(i,false));p.killAt=Math.max(p.killAt,t+4500);});
