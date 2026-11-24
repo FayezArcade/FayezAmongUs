@@ -1,4 +1,4 @@
-export const deckRevision='meridian-3';
+export const deckRevision='meridian-4';
 export const playerScale=.67;
 export const playerRadius=9;
 export const emergencyRange=79;
@@ -32,7 +32,7 @@ export const rooms = [
   ['lower','Lower Engine',240,683,192,152,28,'engine']
 ].map(([id,name,x,y,w,h,chamfer,prop])=>({id,name,x,y,w,h,chamfer,prop}));
 export const deck=Object.fromEntries(rooms.map(room=>[room.id,room]));
-export const corridorWidth=74;
+export const corridorWidth=78;
 // Branches start on their parent hall centerline. The room IDs describe the reachable destinations.
 export const routes=[
   ['upper','cafe',[321,126],[505,126]],
@@ -124,7 +124,8 @@ export function clearDeckLine(a,b,blocked=[]){
   return true;
 }
 export const dist = (a,b) => Math.hypot(a.x-b.x,a.y-b.y);
-const upload=at('admin',-51,-33), power=at('electrical',40,-42);
+export const taskRange = id => id==='calibrate'||id==='clean-electrical'?38:57;
+const upload=at('admin',-51,-33), power=at('electrical',56,-47);
 const disposal=at('storage',78,55), pump=at('storage',-68,57);
 const buildTask=(id,label,kind,stops,instrument=id)=>({id,label,kind,stops,instrument});
 export function taskStageName(task,stage){
@@ -152,7 +153,7 @@ export const tasks = [
   buildTask('waste','Empty Garbage','long',[at('cafe',102,62),disposal]),
   buildTask('chute','Empty Chute','long',[at('oxygen',38,29),disposal],'waste'),
   buildTask('fuel','Fuel Engines','long',[pump,at('upper',43,26),pump,at('lower',-45,-31)]),
-  buildTask('calibrate','Calibrate Distributor','short',[at('electrical',-46,34)]),
+  buildTask('calibrate','Calibrate Distributor','short',[at('electrical',7,-32)]),
   buildTask('filter','Clean O2 Filter','short',[at('oxygen',35,-29)]),
   buildTask('sample','Inspect Sample','long',[at('med',38,-27)]),
   buildTask('sequence','Unlock Manifolds','short',[at('reactor',36,-39)]),

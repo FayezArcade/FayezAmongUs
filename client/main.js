@@ -1,9 +1,10 @@
 import {io} from 'socket.io-client';
-import {colors,suitPalette,hats,rooms,deckRevision,deck,doors,vents,ventDestinations,tasks,taskStageName,repairs,terminal,meetingPoint,emergencyRange,contains,clearDeckLine,dist} from '../shared/deck.js';
+import {colors,suitPalette,hats,rooms,deckRevision,deck,doors,vents,ventDestinations,tasks,taskRange,taskStageName,repairs,terminal,meetingPoint,emergencyRange,contains,clearDeckLine,dist} from '../shared/deck.js';
 import {special} from '../shared/roles.js';
 import {astronaut,renderer,drawMap,drawDeckOverview,suitPortrait} from './art.js';
 import {taskPanel} from './tasks.js';
 import './style.css';
+import './flight.css';
 
 const screen=document.querySelector('#screen'), layer=document.querySelector('#overlay'), flash=document.querySelector('#notice');
 const render=renderer(document.querySelector('#deck'));
@@ -19,11 +20,17 @@ function markup(id,html){
 }
 const tag=id=>`<i class="swatch" style="--suit:${colors[id]||'#7a9cab'}"></i>`;
 const portrait=(color,hat,alive)=>`<img class="suit-avatar" src="${suitPortrait(color,hat,alive)}" alt="" aria-hidden="true">`;
-const brand='FAYEZ CREW';
+const glyph=(name)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${{
+  launch:'<path d="m3 19 6-2 2-5 5-2 5-7-7 2-2 5-5 2zM15 9l-5 5"/>',
+  join:'<path d="M13 4h6v16h-6M3 12h12m-4-4 4 4-4 4"/>',
+  settings:'<path d="M4 7h16M4 12h16M4 17h16"/><path d="M8 5v4m8 1v4m-6 1v4" stroke-width="3"/>',
+  map:'<path d="m3 5 6-2 6 3 6-2v15l-6 2-6-3-6 2zM9 3v15m6-12v15"/>',
+  radio:'<path d="M4 6h16v10h-9l-4 4v-4H4zM8 10h8m-8 3h5"/>'
+}[name]}</svg>`;
 const roleName=p=>special[p.alive?p.role:p.ghost]?.name||(p.alive?p.team==='impostor'?'Infiltrator':'Crewmate':p.team==='impostor'?'Infiltrator Ghost':'Crew Ghost');
 
 let selectedVote=null,meetingTab='ballot',chatSeen=0;
-const mapButton=id=>btn('<span class="map-symbol" aria-hidden="true"><i></i><i></i><i></i></span>','map','map-toggle',
+const mapButton=id=>btn(glyph('map'),'map','map-toggle',
   'id="'+id+'" aria-label="Map" title="Map [M]" aria-expanded="'+(id==='map-open'?'false':'true')+'"');
 const promptButton=action=>action?btn('<kbd>SPACE</kbd> '+escape(action.label),'interact','space-action'):'';
 
@@ -32,6 +39,7 @@ const held=new Set(), touch=new Set(), muted=new Set();
 const nickname=()=>localStorage.getItem('fayez-name')||'';
 const now=()=>Date.now()+skew;
 function tone(kind='tap'){
+  if(localStorage.getItem('fayez-sound')==='off')return;
   try{
     audio??=new AudioContext();if(audio.state==='suspended')void audio.resume();
     const frequencies={tap:[410],ok:[420,630,870],alarm:[310,227,310],launch:[260,440,710],vote:[320,190]}[kind];
@@ -60,11 +68,11 @@ function modalShell(kicker,title,body,classes=''){
   layer.innerHTML=`<div class="scrim"><section class="panel ${classes}" role="dialog" aria-modal="true" aria-label="${escape(title)}"><button type="button" class="close" data-do="close" aria-label="Close">×</button><div class="eyebrow">${kicker}</div><h2>${escape(title)}</h2>${body}</section></div>`;
 }
 function home() {
-  screen.innerHTML=`<main class="home classic-menu"><div class="flight-brand"><span class="menu-emblem" aria-hidden="true">✧</span><h1>FAYEZ <em>CREW</em></h1><div class="home-buttons">${btn('CREATE ROOM','create','outline')}${btn('JOIN ROOM','join','outline')}</div></div></main>`;
+  screen.innerHTML=`<main class="home classic-menu"><div class="flight-brand"><div class="flight-insignia" aria-hidden="true">${glyph('launch')}</div><h1>FAYEZ <em>CREW</em></h1><div class="home-buttons">${btn(glyph('launch')+'<span>CREATE ROOM</span>','create','outline')}${btn(glyph('join')+'<span>JOIN ROOM</span>','join','outline')}</div></div></main>`;
 }
 function entryForm(kind){
   entry=kind;modal={kind:'entry'};
-  modalShell('PRIVATE FLIGHT',kind==='create'?'Create room':'Join room',`<form id="entry-form"><label>Nickname<input name="name" required maxlength="18" value="${escape(nickname())}" autocomplete="nickname" placeholder="Your call sign"></label>${kind==='join'?'<label>Room code<input name="code" required minlength="6" maxlength="6" placeholder="ABC123" autocomplete="off" class="code-input"></label>':''}<button class="primary" type="submit">${kind==='create'?'Create room':'Join room'}</button><p id="entry-status" class="feedback" role="status"></p></form>`);
+  modalShell('PRIVATE FLIGHT',kind==='create'?'Create room':'Join room',`<form id="entry-form"><label>Nickname<input name="name" required maxlength="18" value="${escape(nickname())}" autocomplete="nickname" placeholder="Your call sign"></label>${kind==='join'?'<label>Room code<input name="code" required minlength="6" maxlength="6" placeholder="ABC123" autocomplete="off" class="code-input"></label>':''}<button class="primary" type="submit">${kind==='create'?'Create room':'Join room'}</button><p id="entry-status" class="feedback" role="status"></p></form>`,'entry-panel');
   const input=layer.querySelector('input');
   if(kind==='create'&&input.value.trim())input.form.requestSubmit();
   else input.focus();
@@ -136,8 +144,9 @@ function hud(){
   const s=state, me=s.self, inLobby=s.phase==='lobby', captain=s.host===me.id;
   const roleText=s.solo?'SOLO TEST MODE':roleName(me).toUpperCase();
   screen.innerHTML=`<main class="hud ${inLobby?'dropship-hud':''}">${inLobby?`
-    <aside class="lobby-summary"><h2>Flight settings</h2><div id="lobby-settings"></div><div class="side-info" id="side-info"></div></aside>
-    <div class="lobby-actions actions">${captain?btn('Settings','settings','outline'):''}${btn('Leave','leave','quiet')}</div>
+    <aside class="lobby-summary"><h2>Flight settings</h2><div id="lobby-settings"></div>${captain?btn(glyph('settings')+' Settings','settings','outline'):''}</aside>
+    <aside class="lobby-roster"><h2>On board</h2><div class="side-info" id="side-info"></div></aside>
+    <div class="lobby-actions actions">${btn('Leave','leave','quiet')}</div>
     <div class="boarding">
       ${captain?btn('START','start','start-launch','id="start-flight"'):''}
       <p class="launch-hint" id="launch-hint"></p>
@@ -146,7 +155,7 @@ function hud(){
         <button type="button" data-do="copy" class="outline copy-code">COPY CODE</button>
         <div class="count"><small>PLAYER COUNT</small><strong id="crew-count"></strong></div>
       </div>
-    </div>`:`<header class="topbar"><div class="wordmark">${brand}</div><div class="flight-data"><div class="bar"><small>SHIP RESTORATION <span id="task-count"></span></small><progress max="1" value="0" id="task-progress"></progress></div></div><div class="tag">${roleText}</div>${mapButton('map-open')}</header><aside class="deck-brief" id="side-info"></aside>`}
+    </div>`:`<aside class="deck-brief"><div class="flight-data"><div class="bar"><small>SHIP RESTORATION <span id="task-count"></span></small><progress max="1" value="0" id="task-progress"></progress></div></div><div id="side-info"></div></aside><div class="flight-tools">${mapButton('map-open')}${btn(glyph('settings'),'flight-settings','flight-options','aria-label="Settings" title="Settings"')}</div><div class="location"><span id="current-room"></span></div><div class="role-label">${roleText}</div>`}
     <div class="alert" id="emergency" hidden></div>
   <footer class="controls"><div class="controls-hint"><span>WASD / ↑↓←→</span> Move <span>SPACE</span> Use</div>${inLobby?'':`<div class="actions">${me.team==='impostor'&&me.alive?btn('Eliminate','strike','danger','id="strike-action"'):''}${me.team==='impostor'?btn('Sabotage','sabotage','danger'):''}${me.role||me.ghost?btn('Ability','ability'):''}${s.solo?btn('Test controls','practice','outline'):''}</div>`}</footer><div class="touch" aria-label="Movement controls">${[['up','↑'],['left','←'],['down','↓'],['right','→']].map(([d,label])=>`<button type="button" data-move="${d}" aria-label="Move ${d}">${label}</button>`).join('')}</div><div class="prompt" id="prompt"></div></main>`;
 }
@@ -163,12 +172,12 @@ function contextAction(){
     const task=tasks.find(t=>t.id===a.id);
     return {...task.stops[a.stage],id:a.id,label:taskStageName(task,a.stage)};
   });
-  const a=nearest(available.filter(line),p,56);
+  const a=nearest(available.filter(q=>dist(p,q)<taskRange(q.id)&&line(q)),p,57);
   if(a&&s.sabotage?.kind!=='comms')return {label:a.label,kind:'task',data:a.id};
   if(p.alive&&(p.team==='impostor'||p.effect==='engineer')&&vents.some(v=>dist(p,v)<48&&line(v)))return {label:'Use service hatch',kind:'vent'};
   if(p.alive&&dist(p,meetingPoint)<emergencyRange&&line(meetingPoint)&&p.emergencies>0&&!s.sabotage&&now()>p.meetingAt)return {label:'Call emergency assembly',kind:'emergency'};
   if(p.alive&&dist(p,deck.admin)<85&&line(deck.admin)&&s.sabotage?.kind!=='comms')return {label:'View command telemetry',kind:'monitor',data:'command'};
-  if(p.alive&&dist(p,deck.security)<85&&line(deck.security)&&s.sabotage?.kind!=='comms')return {label:'View camera feeds',kind:'monitor',data:'security'};
+  if(p.alive&&dist(p,deck.security)<85&&line(deck.security)&&s.sabotage?.kind!=='comms')return {label:'View sector activity',kind:'monitor',data:'security'};
   return null;
 }
 function update(){
@@ -202,8 +211,8 @@ function update(){
         const task=tasks.find(t=>t.id===a.id),stop=task.stops[a.stage];
         return '<li><span>'+escape(taskStageName(task,a.stage))+'</span><small>'+escape(deck[stop.room].name)+(task.stops.length>1?' · '+(a.stage+1)+'/'+task.stops.length:'')+'</small></li>';
       }).join('')||'<li>Assignments complete</li>';
-    markup('side-info',`<div class="room-label">${current}</div>${!p.alive?'<div class="room-note">GHOST · Move through bulkheads</div>':''}
-      <div class="task-brief">${btn(p.team==='impostor'?'Cover tasks':'Tasks','tasks','quiet')}<ul>${stationList}</ul></div>`);
+    document.querySelector('#current-room').textContent=current;
+    markup('side-info',`<div class="task-brief">${btn(p.team==='impostor'?'Cover tasks':'Tasks','tasks','quiet')}<ul>${stationList}</ul></div>`);
     const strike=document.getElementById('strike-action');
     if(strike){strike.disabled=now()<p.killAt;strike.textContent=strike.disabled?'Eliminate '+clock(p.killAt,now())+'s':'Eliminate [Q]';}
     const danger=document.querySelector('#emergency');danger.hidden=!s.sabotage;
@@ -260,10 +269,10 @@ function cinematic(){
       <div class="assembly-illustration">${portrait(caller?.color,caller?.hat,true)}${illustration}</div><div class="assembly-stripes"></div></main>`;
     }else{
       screen.innerHTML=`<main class="meeting tablet-meeting"><div class="tablet-frame"><div class="tablet-screen">
-      <header><div class="meeting-heading"><h1>WHO IS THE IMPOSTOR?</h1>
+      <header><div class="meeting-heading"><h1>Crew assembly</h1>
       <div class="meeting-tabs" aria-label="Meeting views">
         ${btn('Ballot','meeting-tab','outline','data-id="ballot" id="meeting-ballot-button" aria-controls="meeting-ballot"')}
-        ${btn('<span class="chat-symbol" aria-hidden="true"></span> Chat <span id="unread-chat" hidden></span>','meeting-tab','outline','data-id="chat" id="meeting-chat-button" aria-controls="meeting-chat"')}</div></div>
+        ${btn(glyph('radio')+' Chat <span id="unread-chat" hidden></span>','meeting-tab','outline','data-id="chat" id="meeting-chat-button" aria-controls="meeting-chat"')}</div></div>
       <p class="meeting-caller">${escape(byline)}${s.solo?' · Solo drill':''}</p><p id="meeting-time"></p></header>
       <div class="meeting-views"><section id="meeting-ballot"><div id="ballot" class="ballot-grid"></div><div id="ballot-controls"></div></section>
       <section id="meeting-chat" class="tablet-comms" hidden><h2>Meeting chat</h2>${chatForm()}</section></div></div></div></main>`;
@@ -392,7 +401,7 @@ async function interact(){
   }
   if(action.kind==='monitor'){
     const res=await command('monitor',{kind:action.data});
-    if(res.ok)panel('monitor',action.data==='security'?'Camera feeds':'Command telemetry','<ul class="mission-list">'+res.readings.map(([k,v])=>'<li><b>'+escape(k)+'</b><span>'+escape(v)+'</span></li>').join('')+'</ul>'+btn('Refresh','interact'));
+    if(res.ok)panel('monitor',action.data==='security'?'Sector activity':'Command telemetry','<ul class="mission-list">'+res.readings.map(([k,v])=>'<li><b>'+escape(k)+'</b><span>'+escape(v)+'</span></li>').join('')+'</ul>'+btn('Refresh','interact'));
     return;
   }
   await command(action.kind,action.data);
@@ -422,6 +431,12 @@ async function click(b){
   if(!state)return;
   const s=state,p=s.self;
   if(action==='settings')settingsPanel();
+  if(action==='flight-settings'){
+    const soundOn=localStorage.getItem('fayez-sound')!=='off';
+    panel('flight-settings','Flight settings',`<p>Move with WASD or the arrow keys. Use Space to interact and M to open the map.</p>
+      <label class="sound-setting"><input type="checkbox" id="flight-sound" ${soundOn?'checked':''}> Game sounds</label>
+      ${btn('Leave flight','leave','danger')}`);
+  }
   if(action==='meeting-tab'&&s.phase==='meeting'){
     meetingTab=id;refreshChat();
     if(id==='chat')document.querySelector('#chat-form input').focus();
@@ -503,7 +518,10 @@ document.addEventListener('click',e=>{
   if(e.detail>0&&b.closest('.hud'))b.blur();
   void click(b);
 });
-document.addEventListener('change',e=>{if(e.target.matches('#hat,#show-name'))void suitChange();});
+document.addEventListener('change',e=>{
+  if(e.target.matches('#hat,#show-name'))void suitChange();
+  if(e.target.matches('#flight-sound'))localStorage.setItem('fayez-sound',e.target.checked?'on':'off');
+});
 document.addEventListener('submit',async e=>{
   const form=e.target;
   if(!form.id)return;

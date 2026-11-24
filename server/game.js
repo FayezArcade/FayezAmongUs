@@ -1,5 +1,5 @@
 import {randomBytes,randomInt} from 'node:crypto';
-import {colors,hats,rooms,deckRevision,deck,playerRadius,doors,vents,ventDestinations,tasks,repairs,dist,walkable,clearDeckLine as hasLine,spawn,terminal,meetingPoint,emergencyRange,contains} from '../shared/deck.js';
+import {colors,hats,rooms,deckRevision,deck,playerRadius,doors,vents,ventDestinations,tasks,taskRange,repairs,dist,walkable,clearDeckLine as hasLine,spawn,terminal,meetingPoint,emergencyRange,contains} from '../shared/deck.js';
 import {special,defaultRoles,signals} from '../shared/roles.js';
 import {puzzle,publicPuzzle,stepPuzzle,randomOrder} from './puzzles.js';
 
@@ -133,7 +133,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
   function usable(r,p,id) {
     const a=p.assignments.find(v=>v.id===id&&!v.done);
     const stop=tasks.find(v=>v.id===id)?.stops[a?.stage];
-    valid(r.phase==='play'&&p.ventIndex===null&&a&&stop&&dist(p,stop)<57&&(p.alive?hasLine(p,stop,Object.keys(r.doors).map(Number)):true)&&r.sabotage?.kind!=='comms','Move to the marked station. Repair comms if needed.');
+    valid(r.phase==='play'&&p.ventIndex===null&&a&&stop&&dist(p,stop)<taskRange(id)&&(p.alive?hasLine(p,stop,Object.keys(r.doors).map(Number)):true)&&r.sabotage?.kind!=='comms','Move to the marked station. Repair comms if needed.');
     return a;
   }
   function assembly(r,p,t,kind,body) {
