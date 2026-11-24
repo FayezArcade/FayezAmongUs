@@ -27,8 +27,9 @@ export const vents = ventRooms.map(i=>({x:rooms[i].x+65,y:rooms[i].y+43}));
 export const terminal = {x:560,y:232};
 export const meetingPoint = {x:940,y:335};
 export const spawn = (i,inLobby) => {
-  const origin=inLobby?{x:450,y:340}:meetingPoint, angle=i*Math.PI*2/10;
-  return {x:origin.x+Math.sin(angle)*57,y:origin.y+Math.cos(angle)*52};
+  if(inLobby)return {x:450+((i%5)-2)*63,y:315+Math.floor(i/5)*72};
+  const angle=i*Math.PI*2/10;
+  return {x:meetingPoint.x+Math.sin(angle)*57,y:meetingPoint.y+Math.cos(angle)*52};
 };
 export const contains = (rect,x,y,margin=0) => Math.abs(rect.x-x)<=rect.w/2-margin && Math.abs(rect.y-y)<=rect.h/2-margin;
 export const walkable = (x,y,inLobby,blocked=[],radius=12) => [[-radius,0],[radius,0],[0,-radius],[0,radius]].every(([dx,dy]) =>

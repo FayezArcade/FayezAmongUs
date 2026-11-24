@@ -1,0 +1,45 @@
+name: Publish Fayez Crew
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: fayez-crew-pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      VITE_SERVER_URL: ${{ vars.FAYEZ_SERVER_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Check the production relay
+        run: |
+          case "$VITE_SERVER_URL" in https://*) ;; *) echo "Set FAYEZ_SERVER_URL to the HTTPS Render origin."; exit 1;; esac
+          curl --retry 3 --max-time 60 --fail --silent --show-error "${VITE_SERVER_URL%/}/health" |
+            node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{let d=JSON.parse(s);if(!d.ok||d.game!=="Fayez Crew")process.exit(1)})'
+          curl --retry 3 --max-time 30 --fail --silent --show-error -D /tmp/fayez-cors -o /dev/null \
+            -H 'Origin: https://fayezarcade.github.io' "${VITE_SERVER_URL%/}/socket.io/?EIO=4&transport=polling"
+          grep -i '^access-control-allow-origin: https://fayezarcade.github.io' /tmp/fayez-cors
+      - run: npm run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

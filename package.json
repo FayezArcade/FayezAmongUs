@@ -1,7 +1,24 @@
 {
-  "name":"fayez-crew","version":"1.0.0","private":true,"type":"module",
-  "engines":{"node":">=22"},
-  "scripts":{"dev":"vite --host 0.0.0.0","start":"node server/index.js","build":"vite build","test":"node --test test/*.test.js"},
-  "dependencies":{"socket.io":"^4.8.3","socket.io-client":"^4.8.3"},
-  "devDependencies":{"vite":"^7.3.1"}
+  "name": "fayez-crew",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "start": "node server/index.js",
+    "build": "vite build",
+    "test": "node --test test/*.test.js",
+    "test:browser": "node test/browser.mjs"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.65.1",
+    "vite": "^7.3.1"
+  }
 }

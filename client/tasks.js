@@ -34,7 +34,8 @@ export function taskPanel(el,initial,now,send) {
     switch(id){
       case 'wire': {
         const wire=(c,side)=>key('<i></i><span>'+c+'</span>',side,c,`style="--lead:${colors[c]}" class="${p.matched?.includes(c)?'matched':''} ${selected===c&&side==='left'?'selected':''}"`);
-        html='<div class="wires"><div>'+p.left.map(c=>wire(c,'left')).join('')+'</div><div>'+p.right.map(c=>wire(c,'right')).join('')+'</div></div>';break;
+        const links=(p.matched||[]).map(c=>{const y=24+48*p.left.indexOf(c),to=24+48*p.right.indexOf(c);return '<path d="M0 '+y+' C30 '+y+',70 '+to+',100 '+to+'" fill="none" stroke="'+colors[c]+'" stroke-width="3" vector-effect="non-scaling-stroke"/>';}).join('');
+        html='<div class="wires"><div>'+p.left.map(c=>wire(c,'left')).join('')+'</div><svg viewBox="0 0 100 192" preserveAspectRatio="none" aria-hidden="true">'+links+'</svg><div>'+p.right.map(c=>wire(c,'right')).join('')+'</div></div>';break;
       }
       case 'card':
         html='<div class="reader"><div class="reader-line"></div><button type="button" id="badge" aria-label="Swipe access badge"><i></i> FC / BADGE</button></div><p class="muted">Keyboard: press the badge button twice at swipe speed.</p>';break;

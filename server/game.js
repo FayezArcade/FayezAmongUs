@@ -1,6 +1,6 @@
 import {randomBytes,randomInt} from 'node:crypto';
 import {colors,hats,rooms,doors,vents,tasks,repairs,dist,walkable,spawn,terminal,meetingPoint,contains} from '../shared/deck.js';
-import {special,defaultRoles} from '../shared/roles.js';
+import {special,defaultRoles,signals} from '../shared/roles.js';
 import {puzzle,publicPuzzle,stepPuzzle,randomOrder} from './puzzles.js';
 
 const fail = message => {throw new Error(message);};
@@ -27,7 +27,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
   const bound=new Map();
   function reset(r) {
     Object.assign(r,{phase:'lobby',players:r.players.filter(p=>p.socket),meeting:null,outcome:null,bodies:[],doors:{},sabotage:null,alerts:[],chat:[],ghostSlots:[]});
-    r.players.forEach((p,i)=>Object.assign(p,spawn(i,true),{alive:true,retired:false,team:null,role:null,ghost:null,assignments:[],opened:null,moving:false,input:{x:0,y:0}}));
+    r.players.forEach((p,i)=>Object.assign(p,spawn(i,true),{alive:true,retired:false,team:null,role:null,ghost:null,assignments:[],opened:null,ventIndex:null,moving:false,input:{x:0,y:0}}));
     migrate(r);
   }
   function migrate(r) {
@@ -51,7 +51,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     valid(!r.players.some(p=>p.name.toLowerCase()===name.toLowerCase()),'That nickname is in use.');
     const p={id:randomBytes(8).toString('hex'),token:randomBytes(24).toString('hex'),name,hat:0,showName:true,
       color:Object.keys(colors).find(c=>!r.players.some(p=>p.color===c)),...spawn(r.players.length,true),
-      alive:true,facing:1,input:{x:0,y:0},moving:false,assignments:[]};
+      alive:true,ventIndex:null,facing:1,input:{x:0,y:0},moving:false,assignments:[]};
     r.players.push(p);
     const result=bind(socket,r,p);
     migrate(r);
@@ -91,7 +91,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       const assignments=team==='crew'?first:[...commons,...randomOrder(tasks.filter(k=>k.kind==='long')).slice(0,r.settings.longTasks),...randomOrder(tasks.filter(k=>k.kind==='short')).slice(0,r.settings.shortTasks)];
       Object.assign(p,spawn(i,false),{alive:true,retired:false,team,role:slots[team].shift()||null,ghost:null,opened:null,
         killAt:t+3400+r.settings.killCooldown*1000,abilityAt:t+3400,reported:false,emergencies:1,
-        assignments:assignments.map(({id})=>({id,stage:0,done:false})),shield:0,effect:null,used:false,notes:[],seen:[],signal:null,roomStamp:null,input:{x:0,y:0}});
+        assignments:assignments.map(({id})=>({id,stage:0,done:false})),shield:0,effect:null,used:false,notes:[],seen:[],signal:null,signalHand:null,signalReroll:true,battery:true,trail:[],ventIndex:null,ventAt:0,roomStamp:null,input:{x:0,y:0}});
     });
   }
   function progress(r) {
@@ -111,15 +111,18 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     else if(completed.total&&completed.done===completed.total)result(r,'crew','The crew restored every assigned system.');
   }
   function die(r,p,t,body) {
-    p.alive=false;p.opened=null;p.effect=null;p.input={x:0,y:0};
-    if(p.team==='crew')p.ghost=r.ghostSlots.shift()||null;
-    if(body)r.bodies.push({id:p.id,color:p.color,name:p.name,...point(p),expires:body===true?null:body,room:roomName(p)});
+    p.alive=false;p.opened=null;p.effect=null;p.ventIndex=null;p.input={x:0,y:0};
+    if(p.team==='crew'&&!p.retired){
+      p.ghost=r.ghostSlots.shift()||null;
+      if(p.ghost==='influencer')p.signalHand=randomOrder(signals).slice(0,5);
+    }
+    if(body)r.bodies.push({id:p.id,color:p.color,name:p.name,...point(p),expires:body===true?null:body,created:t,room:roomName(p)});
     if(body&&p.role==='noisemaker')r.alerts.push({text:'A distress beacon is broadcasting',...point(p),until:t+r.settings.roles.noisemaker.duration*1000});
   }
   function usable(r,p,id) {
     const a=p.assignments.find(v=>v.id===id&&!v.done);
     const stop=tasks.find(v=>v.id===id)?.stops[a?.stage];
-    valid(r.phase==='play'&&a&&stop&&dist(p,stop)<57&&(p.alive?hasLine(p,stop,Object.keys(r.doors).map(Number)):true)&&r.sabotage?.kind!=='comms','Move to the marked station. Repair comms if needed.');
+    valid(r.phase==='play'&&p.ventIndex===null&&a&&stop&&dist(p,stop)<57&&(p.alive?hasLine(p,stop,Object.keys(r.doors).map(Number)):true)&&r.sabotage?.kind!=='comms','Move to the marked station. Repair comms if needed.');
     return a;
   }
   function assembly(r,p,t,subject) {
@@ -127,7 +130,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     r.meeting={subject,caller:p.id,start:t,voteAt:t+r.settings.discussion*1000,end:t+(r.settings.discussion+r.settings.voting)*1000,votes:{},judge:null,result:null};
     r.bodies=[];r.chat=[];r.doors={};
     if(r.sabotage?.until)r.sabotage=null;
-    for(const q of r.players){q.input={x:0,y:0};q.opened=null;q.effect=null;}
+    for(const q of r.players){q.input={x:0,y:0};q.opened=null;q.effect=null;q.ventIndex=null;}
   }
   function tally(r,t) {
     const m=r.meeting, live=r.players.filter(active);
@@ -160,11 +163,15 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     const target=r.players.find(q=>q.id===req?.target&&q.id!==p.id&&active(q));
     const blocked=Object.keys(r.doors).map(Number);
     const nearby=target&&dist(p,target)<116&&(!p.alive||hasLine(p,target,blocked));
+    valid(p.ventIndex===null,'Exit the service hatch first.');
     const until=t+cfg.duration*1000;
     if(id==='engineer') {
       valid(vents.some(v=>dist(p,v)<52),'Approach a service hatch.');
       p.effect={id,until};
-    } else if(id==='scientist'||id==='phantom') p.effect={id,until};
+    } else if(id==='scientist'){
+      valid(p.battery,'Complete an assignment to recharge your battery.');
+      p.battery=false;p.effect={id,until};
+    } else if(id==='phantom')p.effect={id,until};
     else if(id==='tracker'){
       valid(nearby,'Choose a nearby player.');
       p.effect={id,until,target:target.id};
@@ -172,9 +179,14 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       valid(nearby&&target.team==='crew'&&target.shield<=t,'Choose a nearby unshielded crewmate.');
       target.shield=until;
     } else if(id==='influencer') {
-      const icon=['Careful','Follow me','Check the station','I saw something'][req?.signal];
-      valid(target&&target.team==='crew'&&icon,'Choose a living crewmate and a signal.');
-      target.signal={text:'Ghost signal: '+icon,until};
+      if(req?.refresh){
+        valid(p.signalReroll,'No more refreshes remain during this flight.');
+        p.signalReroll=false;p.signalHand=randomOrder(signals).slice(0,5);return;
+      }
+      const hand=req?.signals;
+      valid(target&&target.team==='crew'&&Array.isArray(hand)&&hand.length>=1&&hand.length<=3&&new Set(hand).size===hand.length&&hand.every(v=>p.signalHand.includes(v)),'Choose a living crewmate and up to three available symbols.');
+      target.signal={text:'Ghost signal: '+hand.join(' '),until};
+      p.signalHand=randomOrder(signals).slice(0,5);
     } else if(id==='shapeshifter') {
       valid(target,'Choose a living player to mimic.');
       p.effect={id,until,target:target.id};
@@ -213,13 +225,13 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         const a=usable(r,p,opened.id);
         const attempt=stepPuzzle(opened,req,t);
         if(attempt.done){
-          a.stage++;a.done=a.stage===tasks.find(v=>v.id===a.id).stops.length;p.opened=null;win(r);
+          a.stage++;a.done=a.stage===tasks.find(v=>v.id===a.id).stops.length;if(a.done&&p.role==='scientist')p.battery=true;p.opened=null;win(r);
         }
         return {...attempt,puzzle:publicPuzzle(p.opened,t)};
       }
       case 'strike': {
-        const target=r.players.find(q=>q.id===req?.target && q.team==='crew'&&active(q));
-        valid(r.phase==='play'&&p.team==='impostor'&&p.alive&&t>=p.killAt,'Elimination is cooling down.');
+        const target=r.players.find(q=>q.id===req?.target && q.team==='crew'&&active(q)&&q.ventIndex===null);
+        valid(r.phase==='play'&&p.team==='impostor'&&p.alive&&p.ventIndex===null&&t>=p.killAt,'Elimination is cooling down.');
         valid(target&&dist(p,target)<58&&hasLine(p,target,blocked),'Get closer to a target.');
         p.killAt=t+(p.role==='viper'?r.settings.roles.viper.cooldown:r.settings.killCooldown)*1000;p.effect=null;
         if(target.shield>t){target.shield=0;return {notice:'The strike hit a shield.'};}
@@ -227,11 +239,25 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         die(r,target,t,body);p.x=target.x;p.y=target.y;win(r);break;
       }
       case 'vent': {
-        const here=vents.findIndex(v=>dist(p,v)<48&&hasLine(p,v,blocked)), dest=req?.dest;
-        valid(r.phase==='play'&&p.alive&&(p.team==='impostor'||p.effect?.id==='engineer'&&p.effect.until>t),'Service hatch is unavailable.');
-        valid(here>=0&&Number.isInteger(dest)&&(dest===(here+1)%vents.length||dest===(here+vents.length-1)%vents.length)&&vents[dest],'Choose a connected hatch.');
-        valid(t>=(p.ventAt||0),'Hatch is cycling.');p.ventAt=t+800;
-        Object.assign(p,vents[dest]);p.opened=null;break;
+        const dest=req?.dest;
+        valid(r.phase==='play'&&p.alive,'Service hatch is unavailable.');
+        if(req?.action==='exit'){
+          valid(p.ventIndex!==null,'You are already on the deck.');
+          p.ventIndex=null;p.ventAt=t+800;break;
+        }
+        valid(p.team==='impostor'||p.effect?.id==='engineer'&&p.effect.until>t,'Service hatch is unavailable.');
+        valid(t>=(p.ventAt||0),'Hatch is cycling.');
+        if(p.ventIndex===null){
+          const here=vents.findIndex(v=>dist(p,v)<48&&hasLine(p,v,blocked));
+          valid(here>=0&&req?.action==='enter','Approach a service hatch.');
+          p.ventIndex=here;
+        }else{
+          const here=p.ventIndex;
+          valid(Number.isInteger(dest)&&(dest===(here+1)%vents.length||dest===(here+vents.length-1)%vents.length),'Choose a connected hatch.');
+          p.ventIndex=dest;
+        }
+        Object.assign(p,vents[p.ventIndex]);p.ventAt=t+650;p.opened=null;
+        p.input={x:0,y:0};break;
       }
       case 'sabotage': {
         valid(r.phase==='play'&&p.team==='impostor'&&t>=r.sabotageAt,'Sabotage is cooling down.');
@@ -252,7 +278,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       }
       case 'repair': {
         const s=r.sabotage, index=req?.index, location=s&&repairs[s.kind][index];
-        valid(r.phase==='play'&&p.alive&&location&&dist(p,location)<58&&hasLine(p,location,blocked),'Approach an active repair station.');
+        valid(r.phase==='play'&&p.alive&&p.ventIndex===null&&location&&dist(p,location)<58&&hasLine(p,location,blocked),'Approach an active repair station.');
         if(s.kind==='lights'){
           valid(Number.isInteger(req.a)&&req.a>=0&&req.a<s.pattern.length,'Invalid switch.');
           s.pattern[req.a]=!s.pattern[req.a];if(!s.pattern.every(Boolean))return {};
@@ -271,11 +297,11 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       }
       case 'report': {
         const body=r.bodies.find(b=>b.id===req?.id&&dist(p,b)<72&&hasLine(p,b,blocked));
-        valid(r.phase==='play'&&p.alive&&body,'No incident is close enough.');
+        valid(r.phase==='play'&&p.alive&&p.ventIndex===null&&body,'No incident is close enough.');
         assembly(r,p,t,'Incident reported');break;
       }
       case 'emergency':
-        valid(r.phase==='play'&&p.alive&&p.emergencies>0&&!r.sabotage&&t>=r.meetingAt&&dist(p,meetingPoint)<74,'Intercom is unavailable.');
+        valid(r.phase==='play'&&p.alive&&p.ventIndex===null&&p.emergencies>0&&!r.sabotage&&t>=r.meetingAt&&dist(p,meetingPoint)<74,'Intercom is unavailable.');
         p.emergencies--;assembly(r,p,t,'Emergency assembly');break;
       case 'vote': {
         const to=req?.id, m=r.meeting;
@@ -292,10 +318,10 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       case 'ability': privateAbility(r,p,req,t);break;
       case 'monitor': {
         const site=req?.kind==='command'?rooms[4]:rooms[8];
-        valid(r.phase==='play'&&p.alive&&dist(p,site)<87&&r.sabotage?.kind!=='comms','Approach an online console.');
-        if(req?.kind==='command')return {readings:rooms.map(q=>[q.name,r.players.filter(p=>active(p)&&contains(q,p.x,p.y)).length])};
+        valid(r.phase==='play'&&p.alive&&p.ventIndex===null&&dist(p,site)<87&&r.sabotage?.kind!=='comms','Approach an online console.');
+        if(req?.kind==='command')return {readings:rooms.map(q=>[q.name,r.players.filter(p=>active(p)&&p.ventIndex===null&&contains(q,p.x,p.y)).length])};
         valid(req?.kind==='security','Unknown console.');
-        return {readings:[rooms[0],rooms[3],rooms[5],rooms[9],rooms[10]].map(q=>[q.name,r.players.filter(p=>active(p)&&contains(q,p.x,p.y)&&p.effect?.id!=='phantom').map(p=>{
+        return {readings:[rooms[0],rooms[3],rooms[5],rooms[9],rooms[10]].map(q=>[q.name,r.players.filter(p=>active(p)&&p.ventIndex===null&&contains(q,p.x,p.y)&&p.effect?.id!=='phantom').map(p=>{
           const mask=p.effect?.id==='shapeshifter'?r.players.find(v=>v.id===p.effect.target):null;
           return (mask||p).name;
         }).join(', ')||'Clear'])};
@@ -307,13 +333,13 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
   function snapshot(r,p,t) {
     const playable=r.phase==='play', inLobby=r.phase==='lobby', blocked=Object.keys(r.doors).map(Number);
     const vision=p.alive?(p.team==='impostor'?r.settings.crewVision*1.3:r.sabotage?.kind==='lights'?82:r.settings.crewVision):520;
-    const visible=(q)=>inLobby||q===p||(!p.alive&&dist(p,q)<vision)||(active(q)&&q.effect?.id!=='phantom'&&dist(p,q)<vision&&hasLine(p,q,blocked));
+    const visible=(q)=>inLobby||q===p||q.ventIndex===null&&((!p.alive&&dist(p,q)<vision)||(active(q)&&q.effect?.id!=='phantom'&&dist(p,q)<vision&&hasLine(p,q,blocked)));
     const view=q=>{
       const mask=q!==p&&q.effect?.id==='shapeshifter'?r.players.find(v=>v.id===q.effect.target):null;
       const suit=mask||q;
       // The disguise uses a fresh visual identity and carries no underlying player identifier.
       return {id:mask?'echo-'+suit.id:q.id,name:suit.showName?suit.name:'',color:suit.color,hat:suit.hat,...point(q),
-        alive:q.alive,facing:q.facing,moving:q.moving,protected:q===p&&q.shield>t};
+        alive:q.alive,facing:q.facing,moving:q.moving,hidden:q.ventIndex!==null,protected:q===p&&q.shield>t};
     };
     const m=r.meeting, s=r.sabotage, e=p.effect;
     const roster=r.players.filter(q=>!q.retired||m).map(q=>({...label(q),alive:inLobby||playable?undefined:active(q)}));
@@ -324,15 +350,16 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       if(q&&active(q)&&q.trail?.[0])tactical.track={name:q.name,...q.trail[0]};
     }
     if(p.notes?.length)tactical.notes=p.notes;
+    if(p.ghost==='influencer'){tactical.signals=p.signalHand;tactical.refresh=p.signalReroll;}
     const sabotage=s&&{kind:s.kind,until:s.until,fixed:s.fixed.map(f=>({index:f.index,at:f.at})),pattern:s.pattern,
       nearby:repairs[s.kind].flatMap((q,index)=>p.alive&&dist(p,q)<59&&hasLine(p,q,blocked)?[{index,code:s.code?.[index],dial:s.dial}]:[])};
     return {code:r.code,phase:r.phase,round:r.round||0,host:r.host,now:t,until:r.until,roster,settings:r.settings,
       positions:(playable||inLobby)?r.players.filter(q=>!q.retired&&visible(q)).map(view):[view(p)],
       self:{id:p.id,...point(p),color:p.color,hat:p.hat,showName:p.showName,alive:p.alive,team:p.team,role:p.role,ghost:p.ghost,
-        killAt:p.killAt,abilityAt:p.abilityAt,sabotageAt:r.sabotageAt,effect:e?.id||null,effectUntil:e?.until,
+        killAt:p.killAt,abilityAt:p.abilityAt,sabotageAt:r.sabotageAt,effect:e?.id||null,effectUntil:e?.until,battery:p.battery,ventIndex:p.ventIndex,
         emergencies:p.emergencies,meetingAt:r.meetingAt,used:p.used,signal:p.signal,assignments:p.assignments,
         allies:p.team==='impostor'?r.players.filter(q=>q.team==='impostor').map(q=>q.id):[]},
-      bodies:r.bodies.filter(b=>dist(p,b)<vision&&(!p.alive||hasLine(p,b,blocked))).map(({expires,room,...b})=>b),
+      bodies:r.bodies.filter(b=>dist(p,b)<vision&&(!p.alive||hasLine(p,b,blocked))).map(({expires,created,room,...b})=>({...b,decay:expires?Math.min(3,Math.floor((t-created)/(expires-created)*4)):0})),
       vision,doors:blocked,sabotage,alerts:r.alerts,progress:progress(r),puzzle:publicPuzzle(p.opened,t),tactical,
       meeting:m&&{subject:m.subject,caller:m.caller,start:m.start,voteAt:m.voteAt,end:m.end,
         voted:r.settings.anonymous?undefined:Object.keys(m.votes),myVote:m.votes[p.id],result:m.result},
@@ -406,10 +433,10 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
           if(lobby)continue;
           if(!p.retired){p.retired=true;if(p.alive)die(r,p,t,false);}
         }
-        if(p.effect&&t>=p.effect.until)p.effect=null;
+        if(p.effect&&t>=p.effect.until){if(p.effect.id==='engineer')p.ventIndex=null;p.effect=null;}
         if(p.signal&&t>=p.signal.until)p.signal=null;
         p.moving=false;
-        if(p.socket&&(r.phase==='play'||lobby)&&t-(p.inputAt||0)<270&&!p.opened){
+        if(p.socket&&(r.phase==='play'||lobby)&&t-(p.inputAt||0)<270&&!p.opened&&(lobby||p.ventIndex===null)){
           const {x,y}=p.input, speed=r.settings.speed*(p.alive?1:1.28), blocked=Object.keys(r.doors).map(Number);
           const test=(x,y)=>p.alive||lobby?walkable(x,y,lobby,blocked):x>18&&x<1340&&y>18&&y<900;
           const nx=p.x+x*speed*dt,ny=p.y+y*speed*dt;

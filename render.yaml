@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: fayez-crew-relay
+    runtime: node
+    plan: free
+    numInstances: 1
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: CORS_ORIGIN
+        value: https://fayezarcade.github.io

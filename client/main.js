@@ -126,6 +126,7 @@ function contextAction(){
   const s=state,p=s.self;
   if(s.phase==='lobby')return dist(p,terminal)<76?{label:'Open suit locker',kind:'suit'}:null;
   if(s.phase!=='play')return null;
+  if(Number.isInteger(p.ventIndex))return {label:'Open hatch controls',kind:'vent'};
   const b=p.alive&&nearest(s.bodies,p,70);
   if(b)return {label:'Report incident',kind:'report',data:{id:b.id}};
   if(s.sabotage?.nearby.length)return {label:'Repair '+s.sabotage.kind,kind:'repair'};
@@ -164,6 +165,9 @@ function update(){
   }
   if(s.phase==='meeting')refreshMeeting();
   if(modal?.kind==='suit'&&dist(p,terminal)>=76)closeModal(false);
+  for(const [id,end] of [['ability-time',p.abilityAt],['effect-time',p.effectUntil]]){
+    const timer=document.getElementById(id);if(timer){timer.textContent=clock(end||0,now());if(timer.textContent==='00')abilityPanel();}
+  }
   if(modal?.kind==='ability'&&modal.role==='scientist'){
     const vitals=layer.querySelector('#vitals');
     if(vitals)vitals.innerHTML=(s.tactical.vitals||[]).map(q=>'<li><b>'+escape(q.name)+'</b><span>'+(q.alive?'Online':'No pulse')+'</span></li>').join('');
@@ -244,21 +248,23 @@ function repairPanel(){
 function abilityPanel(){
   const s=state,p=s.self,id=p.alive?p.role:p.ghost,role=special[id];
   if(!role)return;
-  const available=now()>=p.abilityAt, target=(['angel','influencer','shapeshifter'].includes(id)?s.roster:s.positions).filter(q=>q.id!==p.id&&q.alive!==false);
+  const available=now()>=p.abilityAt&&(id!=='scientist'||p.battery), target=(['angel','influencer','shapeshifter'].includes(id)?s.roster:s.positions).filter(q=>q.id!==p.id&&q.alive!==false);
   let body='<p>'+escape(role.description)+'</p>';
   if(id==='scientist')body+='<ul class="mission-list" id="vitals"></ul>';
   if(id==='detective'&&s.tactical.notes)body+='<ul>'+s.tactical.notes.map(q=>'<li>'+escape(q.text)+'</li>').join('')+'</ul>';
   if(id==='tracker'&&s.tactical.track)body+='<p>Tracking '+escape(s.tactical.track.name)+'. Check the deck map.</p>';
   if(id==='judge')body+='<p>Complete an assignment to unlock the override. Use it from the voting panel.</p>';
-  if(!available)body+='<p class="cooldown">Ready in '+clock(p.abilityAt,now())+'s</p>';
+  if(p.effectUntil>now())body+='<p class="cooldown">Effect active · <span id="effect-time">'+clock(p.effectUntil,now())+'</span>s</p>';
+  if(now()<p.abilityAt)body+='<p class="cooldown">Ready in <span id="ability-time">'+clock(p.abilityAt,now())+'</span>s</p>';
+  if(id==='scientist'&&!p.battery)body+='<p>Complete an assignment to recharge the vitals battery.</p>';
   if(available&&['engineer','scientist','phantom'].includes(id))body+=btn(role.ability,'activate','primary');
   if(available&&['angel','influencer','shapeshifter','tracker','detective'].includes(id)){
-    if(id==='influencer')body+='<label>Signal<select id="signal"><option>Careful</option><option>Follow me</option><option>Check the station</option><option>I saw something</option></select></label>';
+    if(id==='influencer')body+='<div class="signal-hand">'+(s.tactical.signals||[]).map((symbol,i)=>'<label><input type="checkbox" name="signal" value="'+escape(symbol)+'" aria-label="Symbol '+(i+1)+'"> '+escape(symbol)+'</label>').join('')+'</div>'+(s.tactical.refresh?btn('Refresh symbols','refresh-signals','quiet'):'');
     body+='<div class="targets">'+target.filter(q=>!q.id.startsWith('echo-')).map(q=>btn(tag(q.color)+' '+escape(q.name),'activate','','data-id="'+q.id+'"')).join('');
     if(id==='detective')body+=s.bodies.map(q=>btn('Record incident: '+escape(q.name),'activate','','data-id="'+q.id+'"')).join('');
     body+='</div>';
   }
-  panel('ability',role.name,body,{role:id});update();
+  panel('ability',role.name,body,{role:id});
 }
 async function interact(){
   const action=contextAction();
@@ -282,8 +288,8 @@ async function interact(){
     return;
   }
   if(action.kind==='vent'){
-    const at=vents.findIndex(v=>dist(state.self,v)<48);
-    panel('vent','Service hatch','<p>Choose a connected service hatch.</p><div class="targets">'+[-1,1].map(dir=>{const i=(at+dir+vents.length)%vents.length;return btn(rooms.find(r=>contains(r,vents[i].x,vents[i].y)).name,'vent','outline','data-id="'+i+'"');}).join('')+'</div>');
+    if(Number.isInteger(state.self.ventIndex))showHatch(state.self.ventIndex);
+    else {const res=await command('vent',{action:'enter'});if(res.ok)showHatch(vents.findIndex(v=>dist(state.self,v)<48));}
     return;
   }
   if(action.kind==='monitor'){
@@ -293,12 +299,21 @@ async function interact(){
   }
   await command(action.kind,action.data);
 }
+function showHatch(at){
+  if(at<0)return;
+  panel('vent','Service hatch','<p>Choose a connected hatch or return to the deck.</p><div class="targets">'+[-1,1].map(dir=>{const i=(at+dir+vents.length)%vents.length;return btn(rooms.find(r=>contains(r,vents[i].x,vents[i].y)).name,'vent','outline','data-id="'+i+'"');}).join('')+btn('Exit hatch','exit-vent','primary')+'</div>');
+}
 async function suitChange(color){
-  const me=state.self, hat=Number(document.querySelector('#hat').value),showName=document.querySelector('#show-name').checked;
-  const reply=await command('suit',{color:color||me.color,hat,showName});
-  if(reply.ok&&modal?.kind==='suit'){
+  const me=state.self, locker=modal;
+  if(locker?.kind!=='suit')return;
+  const selected=color||locker.color||me.color;
+  locker.color=selected;
+  const hat=Number(document.querySelector('#hat').value),showName=document.querySelector('#show-name').checked;
+  const reply=await command('suit',{color:selected,hat,showName});
+  if(!reply.ok&&modal===locker&&locker.color===selected)locker.color=state.self.color;
+  if(reply.ok&&modal===locker){
     const can=layer.querySelector('canvas');can.getContext('2d').clearRect(0,0,can.width,can.height);
-    cinemaSuit(can,{...me,color:color||me.color,hat});
+    cinemaSuit(can,{...me,color:selected,hat});
   }
 }
 async function click(b){
@@ -330,14 +345,16 @@ async function click(b){
   if(action==='judge')await command('ability',{target:id});
   if(action==='mute'){if(muted.has(id))muted.delete(id);else muted.add(id);update();}
   if(action==='activate'){
-    const res=await command('ability',{target:id,signal:document.querySelector('#signal')?.selectedIndex});
+    const res=await command('ability',{target:id,signals:[...layer.querySelectorAll('input[name=signal]:checked')].map(v=>v.value)});
     if(res.ok){notice('Ability activated.');setTimeout(()=>{if(modal?.kind==='ability')abilityPanel();},115);}
   }
   if(action==='strike'){
     const q=nearest(s.positions.filter(q=>q.id!==p.id&&q.alive&&!p.allies.includes(q.id)&&!q.id.startsWith('echo-')),p,61);
     if(q)await command('strike',{target:q.id});else notice('There is no target in range.');
   }
-  if(action==='vent'&&(await command('vent',{dest:Number(id)})).ok)closeModal(false);
+  if(action==='refresh-signals'&&(await command('ability',{refresh:true})).ok)setTimeout(()=>{if(modal?.kind==='ability')abilityPanel();},115);
+  if(action==='vent'&&(await command('vent',{dest:Number(id)})).ok)showHatch(Number(id));
+  if(action==='exit-vent'&&(await command('vent',{action:'exit'})).ok)closeModal(false);
   if(action==='switch')await command('repair',{index:modal.station,a:Number(b.dataset.switch)});
   if(action==='relay-pad'){
     const res=await command('repair',{index:modal.station});if(res.ok)notice('Relay signal sent.');

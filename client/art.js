@@ -16,6 +16,7 @@ export function astronaut(ctx,p,t,scale=1) {
   const color=colors[p.color]||colors.teal;
   ctx.save();ctx.translate(p.x,p.y);ctx.scale(scale,scale);
   const stride=p.moving?Math.sin(t/70)*3:0, bob=p.moving?Math.abs(stride)/2:Math.sin(t/350)*.65;
+  if(p.hidden)ctx.globalAlpha=.32;
   if(!p.alive){ctx.globalAlpha=.48;circle(ctx,0,4,23,'#60e0d42e');circle(ctx,-9,14,6,'#7ffce780');}
   ctx.fillStyle='#03081080';ctx.beginPath();ctx.ellipse(1,13,18,6,0,0,Math.PI*2);ctx.fill();
   ctx.translate(0,-bob);
@@ -152,7 +153,11 @@ export function renderer(canvas) {
       for(const id of s.doors){const d=doors[id];box(ctx,d.x-d.w/2,d.y-d.h/2,d.w,d.h,3,'#673142','#ff8191',2);}
       for(const a of (s.sabotage?.kind==='comms'?[]:s.self.assignments)){if(a.done)continue;const q=tasks.find(v=>v.id===a.id).stops[a.stage];circle(ctx,q.x,q.y,7+Math.sin(t/220)*2,'#ffcc6780','#ffdf87');}
       if(s.sabotage)for(const [i,q] of repairs[s.sabotage.kind].entries()){const fixed=s.sabotage.fixed.some(v=>v.index===i);circle(ctx,q.x,q.y,8+Math.sin(t/130)*2,fixed?'#67f5ddaa':'#ff667dab',fixed?'#67f5dd':'#ffbcc7');}
-      for(const b of s.bodies){box(ctx,b.x-15,b.y-6,31,15,7,colors[b.color],'#111d2b',2);box(ctx,b.x+3,b.y-5,10,8,4,'#7eb7c9');}
+      for(const b of s.bodies){
+        ctx.save();ctx.globalAlpha=1-(b.decay||0)*.19;
+        box(ctx,b.x-15+(b.decay||0)*3,b.y-6,31-(b.decay||0)*6,15,7,colors[b.color],'#111d2b',2);
+        box(ctx,b.x+3,b.y-5,10,8,4,'#7eb7c9');ctx.restore();
+      }
       for(const a of s.alerts)circle(ctx,a.x,a.y,17+Math.sin(t/100)*4,'#ff667d65','#ff667d');
       if(s.tactical.track)circle(ctx,s.tactical.track.x,s.tactical.track.y,12,'#67f5dd66','#67f5dd',2);
     }
