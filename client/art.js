@@ -1,4 +1,4 @@
-import {rooms,corridors,terrain,lobby,doors,vents,ventConnections,terminal,tasks,repairs,colors,lobbySeats,lobbyCrates,contains,meetingPoint,playerScale} from '../shared/deck.js';
+import {rooms,corridors,terrain,lobby,entrances,corridorWidth,doors,vents,ventConnections,terminal,tasks,repairs,colors,lobbySeats,lobbyCrates,contains,meetingPoint,playerScale} from '../shared/deck.js';
 
 function box(ctx,x,y,w,h,r,fill,stroke,line=1){
   ctx.beginPath();ctx.roundRect(x,y,w,h,r);
@@ -176,7 +176,7 @@ function roomProp(ctx,r){
   ctx.save();ctx.translate(x,y);
   const plate=(x,y,w,h,c='#718184')=>box(ctx,x,y,w,h,6,c,inks.line,2.5);
   if(prop==='table'){
-    for(const [a,b,rad] of [[0,-8,56],[-107,52,23],[101,-51,22],[-99,-56,21],[108,51,22]]){
+    for(const [a,b,rad] of [[0,-8,56],[-99,52,42],[94,-52,41],[-92,-54,39],[99,52,42]]){
       circle(ctx,a+3,b+5,rad+2,'#484d48a0');
       circle(ctx,a,b,rad,'#587d96','#253f53',2.7);
       circle(ctx,a,b-3,rad-4,'#7897ad','#3e5f75',1.7);
@@ -191,12 +191,20 @@ function roomProp(ctx,r){
     if(prop==='command'){plate(-30,17,60,26,'#403e43');box(ctx,-24,21,48,17,3,'#527c65','#2a4e40');}
     if(prop==='helm'){plate(-18,14,36,16,'#7f7173');circle(ctx,0,22,6,'#ae9889','#3e3436');}
   }else if(prop==='core'){
-    circle(ctx,0,0,33,'#4d4c66',inks.line,3);
-    circle(ctx,0,-4,26,'#8e86a5','#2d2d52',2);
+    circle(ctx,0,0,39,'#4d4c66',inks.line,3);
+    circle(ctx,0,-4,30,'#8e86a5','#2d2d52',2);
     circle(ctx,0,-4,17,'#6775a9','#303352',2);
     circle(ctx,0,-4,11,'#e2a5cc','#505681',2);
     for(const k of [-1,1]){plate(k*47-7,-22,13,48,'#9890ae');box(ctx,k*47-4,-16,7,31,2,'#c1b8c4');}
   }else if(prop==='atmos'||prop==='power'){
+    if(prop==='power'){
+      plate(-82,-63,164,26,'#555853');
+      for(const [i,offset] of [-76,-50,-24,2,28,54].entries()){
+        box(ctx,offset,-60,22,19,2,i===3?'#878660':'#6c7471','#292e30',1.2);
+        box(ctx,offset+3,-55,16,6,1,i%2===0?'#b1a474':'#93a796');
+        screws(ctx,[[offset+4,-44],[offset+18,-44]]);
+      }
+    }
     for(let i=-1;i<=1;i++){
       plate(i*28-11,-23,22,49,prop==='atmos'?'#6f8e79':'#867a64');
       box(ctx,i*28-7,-17,14,29,6,prop==='atmos'?'#98bc9a':'#b8aa78','#373b34');
@@ -328,20 +336,24 @@ function buildScene(inLobby){
   }
   for(const c of corridors)passage(ctx,c);
   for(const r of rooms)wallRoom(ctx,r);
-  for(const c of corridors){
-    for(const r of rooms){
-      const edge=c.horizontal?[r.x-r.w/2,r.x+r.w/2]:[r.y-r.h/2,r.y+r.h/2];
-      const cross=c.horizontal?c.y:c.x;
-      const offset=c.horizontal?r.y:r.x, span=c.horizontal?r.h:r.w;
-      if(Math.abs(cross-offset)>span/2-13)continue;
-      for(const e of edge){
-        const gate=c.horizontal?{x:e,y:c.y}:{x:c.x,y:e};
-        if(!contains(c,gate.x,gate.y,2))continue;
-        box(ctx,gate.x-(c.horizontal?11:34),gate.y-(c.horizontal?34:11),c.horizontal?22:68,c.horizontal?68:22,2,'#777e7e','#414d56',1.5);
-        const stripe=c.horizontal?[0,-28]:[-28,0];
-        box(ctx,gate.x+stripe[0]-2,gate.y+stripe[1]-2,4,4,1,'#d5bc75');
-      }
+  for(const entry of entrances){
+    const {x,y,horizontal}=entry;
+    const span=corridorWidth-4;
+    box(ctx,x-(horizontal?11:span/2),y-(horizontal?span/2:11),
+      horizontal?22:span,horizontal?span:22,2,'#777e7e','#414d56',1.5);
+    for(const side of [-1,1]){
+      const dx=horizontal?x:x+side*span/2,dy=horizontal?y+side*span/2:y;
+      box(ctx,dx-3,dy-3,6,6,1,'#c2c9c1','#394347');
     }
+  }
+  for(const d of doors){
+    ctx.save();ctx.translate(d.x,d.y);if(!d.horizontal)ctx.rotate(Math.PI/2);
+    box(ctx,-6,-corridorWidth/2,12,corridorWidth,0,'#4c5659');
+    for(const side of [-1,1]){
+      box(ctx,-10,side*(corridorWidth/2-5)-5,20,10,2,'#383e40','#1b2429',2);
+      circle(ctx,0,side*(corridorWidth/2-5),2.2,'#e6bc74');
+    }
+    ctx.restore();
   }
   for(const r of rooms){
     roomProp(ctx,r);
@@ -351,9 +363,14 @@ function buildScene(inLobby){
     box(ctx,v.x-15,v.y-8,30,16,4,'#828d93','#262e36',2);
     for(let i=0;i<4;i++)box(ctx,v.x-10+i*6,v.y-5,2,10,1,'#454d54');
   }
+  const drawnStations=new Set();
   for(const task of tasks)for(const s of task.stops){
+    const key=s.x+','+s.y;
+    if(task.instrument==='clean'||drawnStations.has(key))continue;
+    drawnStations.add(key);
     box(ctx,s.x-9,s.y-6,18,12,2,'#575e62','#282b2c',1.5);
-    box(ctx,s.x-5,s.y-4,10,4,1,'#a9bd9c');circle(ctx,s.x-5,s.y+3,1.4,'#e7d391');
+    const signal=['calibrate','reactor','sequence'].includes(task.instrument)?'#b4acd7':task.instrument==='wire'?'#eac075':'#a9bd9c';
+    box(ctx,s.x-5,s.y-4,10,4,1,signal);circle(ctx,s.x-5,s.y+3,1.4,'#e7d391');
   }
   return cache;
 }
@@ -421,6 +438,17 @@ export function renderer(canvas){
         box(ctx,b.x+4,b.y-6,10,8,4,'#8ab2bb','#28384a',1.4);ctx.restore();
       }
       for(const a of s.alerts)circle(ctx,a.x,a.y,16+Math.sin(t/100)*3,'#e67e6470','#e5a796',2);
+      for(const e of s.taskEffects){
+        if(e.kind==='shield'){
+          for(let i=0;i<6;i++)circle(ctx,e.x+Math.sin(i*Math.PI/3)*23,e.y+Math.cos(i*Math.PI/3)*23,4,'#e9f1b7','#627453',1.3);
+        }else if(e.kind==='target'){
+          const travel=Math.min(46,Math.max(0,(520-e.until+s.now)*.1));
+          polygon(ctx,[[e.x+travel,e.y-10],[e.x+travel+20,e.y-7],[e.x+travel,e.y+3]],'#d8f7bb','#97b98e',1.5);
+        }else{
+          const fall=Math.min(27,Math.max(0,(1300-e.until+s.now)*.022));
+          for(const [i,dx] of [-10,0,12].entries())circle(ctx,e.x+dx,e.y+fall+i*4,4,'#dcb775','#544638',1);
+        }
+      }
       if(s.tactical.track)circle(ctx,s.tactical.track.x,s.tactical.track.y,12,'#acd59b90','#38593b',2);
     }
     for(const p of [...s.positions].sort((a,b)=>a.y-b.y)){
@@ -429,6 +457,7 @@ export function renderer(canvas){
       q.x+=(p.x-q.x)*.31;q.y+=(p.y-q.y)*.31;
       const arrival=s.phase==='play'?Math.min(1,(t-q.seenAt)/170):1;
       ctx.save();ctx.globalAlpha=arrival;
+      if(p.scanning)circle(ctx,q.x,q.y,16+Math.sin(t/95)*3,'#9ff1b268','#b7fbbf',2);
       astronaut(ctx,{...p,x:q.x,y:q.y-(1-arrival)*5},t,playerScale);
       ctx.restore();
     }
@@ -472,6 +501,10 @@ export function drawMap(canvas,s,sabotage=false){
       text(ctx,kind[0].toUpperCase(),q.x,q.y+4,11,'#fff8e9','center');
     }
   }else{
+    for(const id of s.doors){
+      const d=doors[id];
+      box(ctx,d.x-d.w/2,d.y-d.h/2,d.w,d.h,2,'#891d46','#ffb7b0',2);
+    }
     circle(ctx,meetingPoint.x,meetingPoint.y+28,9,'#bc798a','#fff4e7',2);
     if(s.sabotage?.kind!=='comms')for(const a of s.self.assignments)if(!a.done){
       const q=tasks.find(task=>task.id===a.id).stops[a.stage];

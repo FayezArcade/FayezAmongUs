@@ -30,6 +30,8 @@
 @media (max-width:640px){.hud .topbar{padding:.6rem .48rem}.hud .tag{font-size:.58rem}.panel .gear-preview{grid-template-columns:100px 1fr}.home-buttons .primary{border-width:1px}}
 .chart-board{position:relative;height:158px;background:linear-gradient(#20343380,#253035),repeating-linear-gradient(0deg,#273d3b 0 2px,#39514e 2px 21px);border:2px solid #191e23;border-radius:8px}.chart-board svg{position:absolute;width:100%;height:100%}.chart-board button{position:absolute;transform:translate(-50%,-50%);min-width:31px;padding:.29rem;border-radius:100%;font:700 .8rem var(--mono)}.chart-board button:not(:disabled):active{transform:translate(-50%,-50%)}
 .drag-cable{height:4px;position:fixed;z-index:80;pointer-events:none;transform-origin:left center;border-radius:4px;box-shadow:0 2px 1px #1d2026}
+.chart-board,.strainer{touch-action:none}.filter-exhaust{grid-column:1/-1;border:2px dashed #729a85;border-radius:5px;color:#bde6c8;padding:.75rem;background:repeating-linear-gradient(115deg,#142a28 0 10px,#193330 10px 20px)}.drag-particle{position:fixed;z-index:80;pointer-events:none;transform:translate(-50%,-50%);font-size:1.7rem;color:#bde6c8;text-shadow:0 2px 3px #142a28}
+.keygrid.samples{grid-template-columns:repeat(5,1fr)}.samples button{display:grid;justify-items:center;gap:.38rem;padding:.44rem .15rem;font:750 .78rem var(--mono)}.samples i{width:clamp(16px,5vw,28px);height:54px;border:2px solid #a4b3c0;border-radius:4px 4px 12px 12px;background:linear-gradient(90deg,#ffffff45,transparent 36%),linear-gradient(#283843 35%,#6995c2 36%)}.samples .anomaly i{background:linear-gradient(90deg,#ffffff65,transparent 36%),linear-gradient(#49303b 35%,#da6784 36%)}
 .steering{position:relative;height:132px;overflow:hidden;border-radius:9px;border:2px solid #171d23;touch-action:none;background:radial-gradient(ellipse at center,#5d7770,#2c4242);cursor:crosshair}.steering:before,.steering:after{content:'';position:absolute;left:50%;top:50%;background:#a9b8a765}.steering:before{width:100%;height:1px;transform:translateX(-50%)}.steering:after{width:1px;height:100%;transform:translateY(-50%)}.steering i,.steering b{position:absolute;z-index:1;display:block;transform:translate(-50%,-50%);pointer-events:none}.steering i{width:28px;height:28px;border:2px solid #efda83;border-radius:100%;background:#efd97635}.steering b{left:50%;top:50%;width:17px;height:17px;border:2px solid #edf1d4;border-radius:2px}.steering-sliders{display:grid;grid-template-columns:1fr 1fr;gap:.55rem}
 
 /* Dropship and private flight menu */
@@ -167,3 +169,39 @@ body:has(.dropship-hud) #notice{bottom:auto;top:75px}
 .calibration-dial{position:relative;width:110px;height:110px;margin:.25rem auto .8rem;border:4px solid #24282a;border-radius:50%;background:conic-gradient(#28383a 0deg 119deg,#90aa6b 119deg 226deg,#28383a 226deg);box-shadow:0 2px 8px #19232a}
 .calibration-dial b{position:absolute;bottom:50%;left:calc(50% - 2px);width:4px;height:43%;transform-origin:center bottom;background:#f1d47b;border-radius:4px}
 .hold-stage .lever-button{padding:.22rem .38rem .09rem;background:#4a5055}
+
+/* Flight controls stay in the corners so the play area stays clear. */
+[hidden]{display:none!important}
+.hud .topbar{padding-right:5rem}
+.dropship-hud .topbar{padding-right:1rem}
+.map-toggle{position:fixed;right:1.15rem;top:.85rem;width:46px;height:44px;padding:0;display:grid;place-items:center;z-index:1;background:#253541;border:2px solid #a1adaa;box-shadow:0 2px #141a21}
+.map-symbol{display:flex;gap:1px;align-items:center}
+.map-symbol i{display:block;width:7px;height:17px;background:#e1ecf0;border:1px solid #556b7e;transform:skewY(-14deg)}
+.map-symbol i:nth-child(2){transform:skewY(14deg);background:#a6c0d4}
+#map-close{z-index:3;border-color:#d3ddef;background:#305684}
+.deck-brief{position:absolute;top:65px;left:1.25rem;max-width:min(28vw,240px);font-size:.82rem}
+.deck-brief .room-label{display:inline-block;font-weight:850;padding:.35rem .5rem;background:#182127d9;border:1px solid #778586;border-radius:6px}
+.deck-brief .room-note{margin-top:.3rem;color:#daebee}
+.task-brief{margin-top:.4rem;background:#14202bd9;border-radius:6px;border:1px solid #526677;padding:.35rem}
+.task-brief button{padding:.22rem .4rem;font-size:.74rem}
+.task-brief ul{list-style:none;margin:.28rem 0 0;padding:0}
+.task-brief li{padding:.18rem .22rem;line-height:1.15;color:#f3eedc}
+.task-brief li small{display:block;color:#b2c8d9;font-size:.69rem;margin:.12rem 0 .12rem}
+.hud .prompt,.dropship-hud .prompt{bottom:clamp(7.2rem,24vh,14rem);z-index:2}
+.hud .prompt .space-action{display:flex;align-items:center;gap:.55rem;min-height:45px;padding:.35rem .7rem;background:#1c2a32ed;border:2px solid #e9d5a5;color:#fff4d1;font-weight:850;font-size:clamp(.76rem,1.4vw,.98rem);box-shadow:0 3px #141823}
+.hud .space-action kbd{font-size:.75rem;color:#292219;background:#e6cf8a;border:1px solid #fff0b8;padding:.28rem .42rem;box-shadow:none;margin:0}
+.meeting-heading{display:flex;gap:.7rem;align-items:flex-start;justify-content:space-between}
+.meeting-tabs{display:flex;gap:.4rem;flex-shrink:0}
+.meeting-tabs button{display:flex;align-items:center;gap:.28rem;font-size:.8rem}
+.meeting-tabs button[aria-pressed=true]{background:#b4d0e7;border-color:#355878;box-shadow:inset 0 2px #779fbd59}
+.chat-symbol{width:13px;height:9px;border:1px solid currentColor;border-radius:2px;position:relative}
+.chat-symbol::after{content:'';position:absolute;top:100%;left:2px;border-left:3px solid currentColor;border-bottom:3px solid transparent}
+#unread-chat{min-width:1rem;padding:.12rem .25rem;border-radius:1rem;background:#934454;color:#fff;line-height:1}
+.meeting-views .tablet-comms{width:min(100%,620px);margin:auto}
+.meeting-views .tablet-comms .messages{height:clamp(150px,37vh,350px)}
+@media(max-width:640px){
+  .hud .topbar{padding-right:3.5rem}.map-toggle{right:.45rem;top:.45rem;width:40px;height:38px}
+  .deck-brief{top:3.2rem;left:.5rem;max-width:36vw;font-size:.68rem}
+  .task-brief li:nth-child(n+3){display:none}.task-brief li small{font-size:.6rem}
+  .meeting-heading{gap:.4rem}.meeting-tabs{gap:.18rem}.meeting-tabs button{font-size:.65rem;padding:.35rem}
+}

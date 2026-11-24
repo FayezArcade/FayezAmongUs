@@ -1,5 +1,5 @@
 import {randomBytes,randomInt} from 'node:crypto';
-import {colors,hats,rooms,deckRevision,deck,doors,vents,ventDestinations,tasks,repairs,dist,walkable,spawn,terminal,meetingPoint,emergencyRange,contains} from '../shared/deck.js';
+import {colors,hats,rooms,deckRevision,deck,playerRadius,doors,vents,ventDestinations,tasks,repairs,dist,walkable,clearDeckLine as hasLine,spawn,terminal,meetingPoint,emergencyRange,contains} from '../shared/deck.js';
 import {special,defaultRoles,signals} from '../shared/roles.js';
 import {puzzle,publicPuzzle,stepPuzzle,randomOrder} from './puzzles.js';
 
@@ -13,14 +13,14 @@ const point=(p)=>({x:Math.round(p.x),y:Math.round(p.y)});
 const label=(p)=>({id:p.id,name:p.name,color:p.color,hat:p.hat,online:Boolean(p.socket)});
 const roomName=(p)=>rooms.find(r=>contains(r,p.x,p.y))?.name||'Transit';
 const active=(p)=>p?.alive&&!p.retired;
-const hasLine=(a,b,blocked)=> {
-  const steps=Math.max(1,Math.ceil(dist(a,b)/13));
-  for(let i=0;i<=steps;i++){
-    const t=i/steps;
-    if(!walkable(a.x+(b.x-a.x)*t,a.y+(b.y-a.y)*t,false,blocked,1)) return false;
-  }
-  return true;
-};
+const taskVariants=new Set(['wire','data','route','clean']);
+const taskPools={common:new Map(),long:new Map(),short:new Map()};
+for(const task of tasks){
+  const pool=taskPools[task.kind],family=taskVariants.has(task.instrument)?task.instrument:task.id;
+  if(!pool.has(family))pool.set(family,[]);
+  pool.get(family).push(task);
+}
+const drawTasks=(kind,count)=>randomOrder([...taskPools[kind].values()]).slice(0,count).map(variants=>variants[randomInt(variants.length)]);
 
 export function attach(io,{now=Date.now,maxRooms=250}={}) {
   const roomsByCode=new Map();
@@ -92,17 +92,17 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     }
     const n=r.solo?0:r.settings.impostors;
     r.players=r.players.filter(p=>p.socket);
-    Object.assign(r,{phase:'reveal',until:t+3400,round:(r.round||0)+1,meeting:null,bodies:[],doors:{},sabotage:null,alerts:[],chat:[],outcome:null,sabotageAt:t+(r.solo?3400:10500),meetingAt:t+3400+r.settings.meetingCooldown*1000});
+    Object.assign(r,{phase:'reveal',until:t+3400,round:(r.round||0)+1,meeting:null,bodies:[],doors:{},sabotage:null,alerts:[],taskEffects:{},chat:[],outcome:null,sabotageAt:t+(r.solo?3400:10500),meetingAt:t+3400+r.settings.meetingCooldown*1000});
     const order=randomOrder(r.players), slots={impostor:rollSlots(r,'impostor'),crew:rollSlots(r,'crew')};
     r.ghostSlots=rollSlots(r,'ghost');
-    const commons=randomOrder(tasks.filter(k=>k.kind==='common')).slice(0,r.settings.commonTasks);
+    const commons=drawTasks('common',r.settings.commonTasks);
     order.forEach((p,i)=>{
       const team=i<n?'impostor':'crew';
       // Practice exposes every station. Multiplayer continues to draw from the host's configured pools.
-      const assignments=r.solo?tasks:[...commons,...randomOrder(tasks.filter(k=>k.kind==='long')).slice(0,r.settings.longTasks),...randomOrder(tasks.filter(k=>k.kind==='short')).slice(0,r.settings.shortTasks)];
+      const assignments=r.solo?tasks:[...commons,...drawTasks('long',r.settings.longTasks),...drawTasks('short',r.settings.shortTasks)];
       Object.assign(p,spawn(i,false),{alive:true,retired:false,team,role:r.solo?null:slots[team].shift()||null,ghost:null,opened:null,
         killAt:t+3400+r.settings.killCooldown*1000,abilityAt:t+3400,reported:false,emergencies:1,
-        assignments:assignments.map(({id})=>({id,stage:0,done:false})),shield:0,effect:null,used:false,notes:[],seen:[],signal:null,signalHand:null,signalReroll:true,battery:true,trail:[],ventIndex:null,ventAt:0,roomStamp:null,input:{x:0,y:0}});
+        sampleLab:null,assignments:assignments.map(({id})=>({id,stage:0,done:false})),shield:0,effect:null,used:false,notes:[],seen:[],signal:null,signalHand:null,signalReroll:true,battery:true,trail:[],ventIndex:null,ventAt:0,roomStamp:null,input:{x:0,y:0}});
     });
   }
   function progress(r) {
@@ -141,7 +141,8 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     const introUntil=t+1800, voteAt=introUntil+r.settings.discussion*1000;
     r.meeting={kind,caller:p.id,incident:body?{name:body.name,color:body.color}:null,
       start:t,introUntil,voteAt,end:voteAt+r.settings.voting*1000,votes:{},judge:null,result:null};
-    r.bodies=[];r.chat=[];r.doors={};
+    r.bodies=[];r.chat=[];r.chatSequence=0;r.doors={};
+    for(const id of ['target','waste'])delete r.taskEffects[id];
     if(r.sabotage?.until)r.sabotage=null;
     for(const q of r.players){q.input={x:0,y:0};q.opened=null;q.effect=null;q.ventIndex=null;}
   }
@@ -246,7 +247,10 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       }
       case 'taskOpen': {
         const a=usable(r,p,req?.id);
-        if(p.opened?.id!==a.id||p.opened.stage!==a.stage)p.opened=puzzle(a.id,a.stage,t,tasks.find(task=>task.id===a.id).instrument);
+        if(p.opened?.id!==a.id||p.opened.stage!==a.stage){
+          const instrument=tasks.find(task=>task.id===a.id).instrument;
+          p.opened=instrument==='sample'?(p.sampleLab??=puzzle(a.id,a.stage,t,instrument)):puzzle(a.id,a.stage,t,instrument);
+        }
         return {puzzle:publicPuzzle(p.opened,t)};
       }
       case 'taskClose': p.opened=null;break;
@@ -255,6 +259,12 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         valid(opened,'Open a task first.');
         const a=usable(r,p,opened.id);
         const attempt=stepPuzzle(opened,req,t);
+        if(p.team==='crew'&&p.alive&&!attempt.error){
+          const kind=opened.instrument;
+          if(kind==='target')r.taskEffects.target={kind,x:deck.weapons.x+55,y:deck.weapons.y-5,until:t+520};
+          if(kind==='shield'&&attempt.done)r.taskEffects.shield={kind,x:deck.shields.x,y:deck.shields.y};
+          if(kind==='waste'&&a.stage===1&&attempt.done)r.taskEffects.waste={kind,x:deck.storage.x+78,y:deck.storage.y+70,until:t+1300};
+        }
         if(attempt.done){
           a.stage++;a.done=a.stage===tasks.find(v=>v.id===a.id).stops.length;if(a.done&&p.role==='scientist')p.battery=true;p.opened=null;win(r);
         }
@@ -271,6 +281,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       }
       case 'vent': {
         const dest=req?.dest;
+        const inService=index=>r.players.some(q=>q.opened?.instrument==='clean'&&tasks.find(v=>v.id===q.opened.id).stops[0]===vents[index]&&dist(q,vents[index])<57);
         valid(r.phase==='play'&&p.alive,'Service hatch is unavailable.');
         if(req?.action==='exit'){
           valid(p.ventIndex!==null,'You are already on the deck.');
@@ -281,12 +292,12 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         if(p.ventIndex===null){
           const here=vents.findIndex(v=>dist(p,v)<48&&hasLine(p,v,blocked));
           valid(here>=0&&req?.action==='enter','Approach a service hatch.');
-          valid(!r.players.some(q=>q.opened?.id==='clean'&&dist(q,vents[here])<57),'This hatch is being serviced.');
+          valid(!inService(here),'This hatch is being serviced.');
           p.ventIndex=here;
         }else{
           const here=p.ventIndex;
           valid(Number.isInteger(dest)&&ventDestinations(here).includes(dest),'Choose a connected hatch.');
-          valid(!r.players.some(q=>q.opened?.id==='clean'&&dist(q,vents[dest])<57),'That hatch is being serviced.');
+          valid(!inService(dest),'That hatch is being serviced.');
           p.ventIndex=dest;
         }
         Object.assign(p,vents[p.ventIndex]);p.ventAt=t+650;p.opened=null;
@@ -297,7 +308,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         const id=req?.kind;
         if(id==='doors') {
           valid(Number.isInteger(req.door)&&doors[req.door]&&!r.doors[req.door],'Choose an open bulkhead.');
-          valid(!r.players.some(q=>active(q)&&contains(doors[req.door],q.x,q.y,-13)),'Bulkhead obstructed.');
+          valid(!r.players.some(q=>active(q)&&contains(doors[req.door],q.x,q.y,-(playerRadius+2))),'Bulkhead obstructed.');
           r.doors[req.door]=t+9500;
         }else{
           valid(Object.hasOwn(repairs,id)&&!r.sabotage,'A ship system is already disrupted.');
@@ -334,7 +345,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         assembly(r,p,t,'report',body);break;
       }
       case 'emergency':
-        valid(r.phase==='play'&&p.alive&&p.ventIndex===null&&p.emergencies>0&&!r.sabotage&&t>=r.meetingAt&&dist(p,meetingPoint)<emergencyRange,'Intercom is unavailable.');
+        valid(r.phase==='play'&&p.alive&&p.ventIndex===null&&p.emergencies>0&&!r.sabotage&&t>=r.meetingAt&&dist(p,meetingPoint)<emergencyRange&&hasLine(p,meetingPoint,blocked),'Intercom is unavailable.');
         p.emergencies--;assembly(r,p,t,'emergency');break;
       case 'vote': {
         const to=req?.id, m=r.meeting;
@@ -343,15 +354,15 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         m.votes[p.id]=to;break;
       }
       case 'chat': {
-        valid(r.phase==='meeting'||r.phase==='lobby','The intercom is closed.');
+        valid(r.phase==='meeting'&&t>=r.meeting.introUntil,'The intercom is closed.');
         const message=typeof req?.text==='string'?req.text.trim().slice(0,180):'';
         valid(message&&t-(p.chatAt||0)>=950,'Wait briefly before sending another message.');
-        p.chatAt=t;r.chat.push({id:p.id,name:p.name,color:p.color,text:message,ghost:!p.alive,at:t});r.chat=r.chat.slice(-64);break;
+        p.chatAt=t;r.chat.push({id:p.id,name:p.name,color:p.color,sequence:++r.chatSequence,text:message,ghost:!p.alive,at:t});r.chat=r.chat.slice(-64);break;
       }
       case 'ability': privateAbility(r,p,req,t);break;
       case 'monitor': {
         const site=req?.kind==='command'?deck.admin:deck.security;
-        valid(r.phase==='play'&&p.alive&&p.ventIndex===null&&dist(p,site)<87&&r.sabotage?.kind!=='comms','Approach an online console.');
+        valid(r.phase==='play'&&p.alive&&p.ventIndex===null&&dist(p,site)<87&&hasLine(p,site,blocked)&&r.sabotage?.kind!=='comms','Approach an online console.');
         if(req?.kind==='command')return {readings:rooms.map(q=>[q.name,r.players.filter(p=>active(p)&&p.ventIndex===null&&contains(q,p.x,p.y)).length])};
         valid(req?.kind==='security','Unknown console.');
         return {readings:[deck.nav,deck.med,deck.cafe,deck.storage,deck.electrical].map(q=>[q.name,r.players.filter(p=>active(p)&&p.ventIndex===null&&contains(q,p.x,p.y)&&p.effect?.id!=='phantom').map(p=>{
@@ -371,8 +382,9 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       const mask=q!==p&&q.effect?.id==='shapeshifter'?r.players.find(v=>v.id===q.effect.target):null;
       const suit=mask||q;
       // The disguise uses a fresh visual identity and carries no underlying player identifier.
+      const scanning=q.alive&&q.team==='crew'&&q.opened?.instrument==='scan'&&q.opened.hold!==null&&t-q.opened.hold<4000;
       return {id:mask?'echo-'+suit.id:q.id,name:suit.showName?suit.name:'',color:suit.color,hat:suit.hat,...point(q),
-        alive:q.alive,facing:q.facing,direction:q.direction,moving:q.moving,hidden:q.ventIndex!==null,protected:q===p&&q.shield>t};
+        alive:q.alive,facing:q.facing,direction:q.direction,moving:q.moving,hidden:q.ventIndex!==null,protected:q===p&&q.shield>t,scanning};
     };
     const m=r.meeting, s=r.sabotage, e=p.effect;
     const roster=r.players.filter(q=>!q.retired||m).map(q=>({...label(q),alive:inLobby||playable?undefined:active(q)}));
@@ -386,6 +398,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     if(p.ghost==='influencer'){tactical.signals=p.signalHand;tactical.refresh=p.signalReroll;}
     const sabotage=s&&{kind:s.kind,until:s.until,fixed:s.fixed.map(f=>({index:f.index,at:f.at})),pattern:s.pattern,
       nearby:repairs[s.kind].flatMap((q,index)=>p.alive&&dist(p,q)<59&&hasLine(p,q,blocked)?[{index,code:s.code?.[index],dial:s.dial}]:[])};
+    const taskEffects=playable?Object.values(r.taskEffects).filter(q=>(!q.until||q.until>t)&&dist(p,q)<vision&&(!p.alive||hasLine(p,q,blocked))):[];
     return {code:r.code,phase:r.phase,solo:Boolean(r.solo),round:r.round||0,host:r.host,now:t,until:r.until,roster,settings:r.settings,
       positions:(playable||inLobby)?r.players.filter(q=>!q.retired&&visible(q)).map(view):[view(p)],
       self:{id:p.id,...point(p),color:p.color,hat:p.hat,showName:p.showName,alive:p.alive,team:p.team,role:p.role,ghost:p.ghost,
@@ -393,7 +406,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         emergencies:p.emergencies,meetingAt:r.meetingAt,used:p.used,signal:p.signal,assignments:p.assignments,
         allies:p.team==='impostor'?r.players.filter(q=>q.team==='impostor').map(q=>q.id):[]},
       bodies:r.bodies.filter(b=>dist(p,b)<vision&&(!p.alive||hasLine(p,b,blocked))).map(({expires,created,room,...b})=>({...b,decay:expires?Math.min(3,Math.floor((t-created)/(expires-created)*4)):0})),
-      vision,doors:blocked,sabotage,alerts:r.alerts,progress:progress(r),puzzle:publicPuzzle(p.opened,t),tactical,
+      vision,doors:blocked,sabotage,alerts:r.alerts,taskEffects,progress:progress(r),puzzle:publicPuzzle(p.opened,t),tactical,
       meeting:m&&{kind:m.kind,caller:m.caller,incident:m.incident,start:m.start,introUntil:m.introUntil,voteAt:m.voteAt,end:m.end,
         voted:Object.keys(m.votes),myVote:m.votes[p.id],result:m.result},
       chat:r.chat.filter(msg=>!msg.ghost||!p.alive),outcome:r.outcome};

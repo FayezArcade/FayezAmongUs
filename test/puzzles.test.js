@@ -2,16 +2,21 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {deckWaypoints} from './deck-route.mjs';
 import {puzzle,publicPuzzle,stepPuzzle} from '../server/puzzles.js';
-import {rooms,routes,doors,tasks,repairs,vents,deck,walkable} from '../shared/deck.js';
+import {rooms,routes,doors,entrances,tasks,repairs,vents,deck,walkable,clearDeckLine} from '../shared/deck.js';
 
 test('all deck rooms are connected, stations are reachable and doors block transit',()=>{
   for(const room of rooms)assert.ok(deckWaypoints(deck.cafe,room).length>1,room.name);
   for(const route of routes)for(const point of route.points)assert.ok(walkable(point.x,point.y,false));
   for(const point of [...vents,...Object.values(repairs).flat()])assert.ok(walkable(point.x,point.y,false));
+  for(const {x,y} of entrances)assert.ok(walkable(x,y,false));
   assert.equal(walkable(470,440,false),false,'Space between MedBay and Electrical');
+  assert.equal(clearDeckLine(deck.admin,deck.oxygen),false,'Admin and O2 are separated by the hull');
   for(const v of tasks)for(const q of v.stops)assert.ok(walkable(q.x,q.y,false),v.id);
   for(const d of doors){
-    assert.ok(walkable(d.x,d.y,false));
+    const dx=d.horizontal?20:0,dy=d.horizontal?0:20;
+    const a={x:d.x-dx,y:d.y-dy},b={x:d.x+dx,y:d.y+dy};
+    assert.ok(clearDeckLine(a,b),d.label);
+    assert.equal(clearDeckLine(a,b,[d.id]),false,d.label);
     assert.equal(walkable(d.x,d.y,false,[d.id]),false);
   }
 });
@@ -43,7 +48,11 @@ for(const t of tasks)test('server validates '+t.id,()=>{
         break;
       case 'sample':
         assert.equal(publicPuzzle(p,start).odd,undefined);
-        assert.ok(step('sample',p.odd).error);done=step('sample',p.odd,null,p.ready);break;
+        assert.ok(step('sample',p.odd).error);
+        assert.deepEqual(step('beginSample'),{});
+        assert.equal(publicPuzzle(p,p.ready-1).odd,undefined);
+        assert.ok(step('sample',p.odd,null,p.ready-1).error);
+        done=step('sample',p.odd,null,p.ready);break;
       case 'target':
         for(let i=0;i<3;i++){
           const a=(p.lane+i*2)%5;done=step('target',a,null,start+i*p.period);

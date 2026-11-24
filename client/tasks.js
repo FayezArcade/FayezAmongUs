@@ -12,10 +12,10 @@ const legends={
   waste:'Hold the purge control down to cycle the waste lock.',
   fuel:'Hold the pump to complete the fuel transfer.',
   calibrate:'Capture three readings when the needle enters the bright band.',
-  filter:'Remove each particle from the intake screen.',
-  sample:'Wait for the test, then select the anomalous sample.',
+  filter:'Drag each particle into the exhaust, or select it to clear it.',
+  sample:'Start the analysis. Return after the countdown and select the anomalous sample.',
   sequence:'Open the valves in ascending numerical order.',
-  chart:'Follow the flight path in order, from the starting point to the destination.',
+  chart:'Drag along the flight path from start to finish, or select waypoints in order.',
   clean:'Remove all debris from the maintenance grate.',
   nav:'Move the crosshair into the marked circle, then lock the course.',
   reactor:'Memorize the firing order before the relay display goes dark.'
@@ -26,6 +26,7 @@ const range=(id,title,target)=>`<label>${title}<div class="slider"><span style="
 export function taskPanel(el,initial,now,send) {
   let transferEnding=false;
   let p=initial, selected=null, dragging=null, cable=null, held=false, holdAt=0, last='';
+  let plotting=false, plottingStep=false, particle=null;
   const id=initial.instrument||initial.id;
   const status=document.createElement('p');status.className='feedback';status.setAttribute('role','status');
   el.innerHTML=`<p class="instrument-help">${legends[id]}</p><div class="hardware"></div>`;
@@ -53,7 +54,7 @@ export function taskPanel(el,initial,now,send) {
       case 'shield':
         html='<div class="keygrid">'+p.active.map((on,i)=>key((i+1)+' · '+(on?'ON':'OFF'),'toggle',i,'class="'+(on?'active':'')+'"')).join('')+'</div>';break;
       case 'filter':case 'clean':
-        html='<div class="strainer">'+[0,1,2,3,4].map(i=>p.debris.includes(i)?key(['◆','✦','●','◒','◈'][i],'clear',i,'aria-label="Remove particle '+(i+1)+'"'):'<span>·</span>').join('')+'</div>';break;
+        html='<div class="strainer">'+[0,1,2,3,4].map(i=>p.debris.includes(i)?key(['◆','✦','●','◒','◈'][i],'clear',i,'aria-label="Remove particle '+(i+1)+'"'):'<span>·</span>').join('')+(id==='filter'?'<div class="filter-exhaust">Exhaust</div>':'')+'</div>';break;
       case 'chart':{
         const xs=[10,30,50,70,90];
         html='<div class="chart-board"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="'+p.waypoints.map((y,i)=>xs[i]+','+y).join(' ')+'" fill="none" stroke="#9aaf8e" stroke-width="1" stroke-dasharray="3 3"/></svg>'+p.waypoints.map((y,i)=>key(i<p.progress?'●':i+1,'waypoint',i,'style="left:'+xs[i]+'%;top:'+y+'%" class="'+(i<=p.progress?'active':'')+'"')).join('')+'</div>';break;
@@ -65,8 +66,9 @@ export function taskPanel(el,initial,now,send) {
           showing?'disabled class="'+(p.cue===value?'relay-lit':'')+'"':id==='sequence'&&value<=p.progress?'disabled class="active"':'')).join('')+'</div>';break;
       }
       case 'sample': {
+        if(p.ready===null){html='<div class="digits">SAMPLE ANALYZER</div>'+key('Start analysis','beginSample','','class="primary"');break;}
         const remaining=Math.max(0,Math.ceil((p.ready-t)/1000));
-        html='<div class="digits">'+(remaining?'Analyzing · '+remaining+'s':'Analysis ready')+'</div><div class="keygrid samples">'+[0,1,2,3].map(i=>key('Sample '+(i+1),'sample',i,remaining?'disabled':i===p.odd?'class="anomaly"':'class="active"')).join('')+'</div>';break;
+        html='<div class="digits">'+(remaining?'Analyzing · '+remaining+'s':'Analysis ready')+'</div><div class="keygrid samples">'+[0,1,2,3,4].map(i=>key('<i aria-hidden="true"></i><span>'+(i+1)+'</span>','sample',i,'aria-label="Sample '+(i+1)+'" '+(i===p.odd?'class="anomaly"':p.odd===undefined?'disabled':'class="active"'))).join('')+'</div>';break;
       }
       case 'target': {
         const lit=(p.lane+Math.floor(rate(t)/p.period)*2)%5;
@@ -110,6 +112,12 @@ export function taskPanel(el,initial,now,send) {
     }
     return reply;
   }
+  async function plot(button){
+    const waypoint=Number(button?.dataset.value);
+    if(plottingStep||waypoint!==p.progress)return;
+    plottingStep=true;
+    try{await submit('waypoint',waypoint);}finally{plottingStep=false;}
+  }
   function setSteering(e){
     const pad=el.querySelector('.steering'), box=pad.getBoundingClientRect();
     for(const [axis,ratio] of [['axis',(e.clientX-box.left)/box.width],['axis-y',(e.clientY-box.top)/box.height]]){
@@ -136,6 +144,16 @@ export function taskPanel(el,initial,now,send) {
     await submit(type,Number(value));
   });
   el.addEventListener('pointerdown',async e=>{
+    const waypoint=e.target.closest('[data-key="waypoint"]');
+    if(waypoint&&e.button===0){
+      e.preventDefault();el.setPointerCapture(e.pointerId);plotting=true;
+      await plot(waypoint);return;
+    }
+    const debris=e.target.closest('[data-key="clear"]');
+    if(id==='filter'&&debris&&e.button===0){
+      e.preventDefault();el.setPointerCapture(e.pointerId);
+      particle={index:Number(debris.dataset.value),glyph:debris.textContent,x:e.clientX,y:e.clientY};return;
+    }
     const lead=e.target.closest('[data-key="left"]');
     if(lead&&!p.matched?.includes(lead.dataset.value)){
       const anchor=lead.querySelector('i').getBoundingClientRect();
@@ -155,6 +173,14 @@ export function taskPanel(el,initial,now,send) {
     }
   });
   el.addEventListener('pointermove',e=>{
+    if(plotting)void plot(document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-key="waypoint"]'));
+    if(particle&&Math.hypot(e.clientX-particle.x,e.clientY-particle.y)>5){
+      if(!particle.ghost){
+        particle.ghost=document.createElement('span');particle.ghost.className='drag-particle';
+        particle.ghost.textContent=particle.glyph;el.append(particle.ghost);
+      }
+      Object.assign(particle.ghost.style,{left:e.clientX+'px',top:e.clientY+'px'});
+    }
     if(e.target.closest('.steering')&&e.buttons&1)setSteering(e);
     if(cable&&Math.hypot(e.clientX-cable.downX,e.clientY-cable.downY)>5){
       if(!cable.ghost){
@@ -169,6 +195,11 @@ export function taskPanel(el,initial,now,send) {
     if(dragging)dragging.node.style.transform='translateX('+Math.max(0,Math.min(dragging.span,e.clientX-dragging.x))+'px)';
   });
   el.addEventListener('pointerup',async e=>{
+    plotting=false;
+    if(particle){
+      const released=particle;particle=null;released.ghost?.remove();
+      if(!released.ghost||document.elementFromPoint(e.clientX,e.clientY)?.closest('.filter-exhaust'))await submit('clear',released.index);
+    }
     if(cable){
       const pending=cable;cable=null;
       pending.ghost?.remove();
@@ -184,7 +215,7 @@ export function taskPanel(el,initial,now,send) {
       if(e.clientX-swipe.x>=swipe.span*.78)await submit('swipe');else status.textContent='Drag the badge to the far edge.';
     }
   });
-  el.addEventListener('pointercancel',()=>{cable?.ghost?.remove();cable=null;held=false;if(dragging)dragging.node.style.transform='';dragging=null;});
+  el.addEventListener('pointercancel',()=>{plotting=false;particle?.ghost?.remove();particle=null;cable?.ghost?.remove();cable=null;held=false;if(dragging)dragging.node.style.transform='';dragging=null;});
   el.addEventListener('keydown',async e=>{
     if(e.repeat||!['Enter',' '].includes(e.key))return;
     if(e.target.matches('#badge')){

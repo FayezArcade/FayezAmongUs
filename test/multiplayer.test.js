@@ -4,7 +4,7 @@ import {once} from 'node:events';
 import {setTimeout as wait} from 'node:timers/promises';
 import {io} from 'socket.io-client';
 import {createGameServer} from '../server/index.js';
-import {deck,deckRevision,dist,tasks,terminal,vents,repairs} from '../shared/deck.js';
+import {deck,deckRevision,dist,tasks,terminal,vents,repairs,doors} from '../shared/deck.js';
 
 import {deckWaypoints} from './deck-route.mjs';
 
@@ -57,6 +57,7 @@ test('four private clients play, repair, report, vote, reset and start a second 
   assert.ok(Object.values(host.s.settings.roles).every(r=>!r.enabled));
   assert.equal((await players[1].act('start')).ok,false);
   assert.equal((await host.act('practiceRole',{role:'phantom'})).ok,false);
+  assert.equal((await host.act('chat',{text:'Lobby text'})).ok,false);
   assert.equal((await host.act('suit',{color:'sky',hat:1})).ok,false);
   await drive(host,terminal.x,terminal.y);
   assert.equal((await host.act('suit',{color:players[1].s.self.color,hat:1})).ok,false);
@@ -77,6 +78,7 @@ test('four private clients play, repair, report, vote, reset and start a second 
   assert.equal((await villain.act('sabotage',{kind:'lights'})).ok,false);
   assert.equal((await villain.act('strike',{target:crew[0].s.self.id})).ok,false);
   const worker=crew[0];
+  assert.equal((await worker.act('chat',{text:'Gameplay text'})).ok,false);
   const card=tasks.find(v=>v.id==='card').stops[0];
   assert.equal((await worker.act('taskOpen',{id:'card'})).ok,false);
   await navigate(worker,card);
@@ -100,6 +102,8 @@ test('four private clients play, repair, report, vote, reset and start a second 
   await until(()=>!victim.s.self.alive&&reporter.s.bodies.length);
   assert.ok((await reporter.act('report',{id:victim.s.self.id})).ok);
   await until(()=>players.every(p=>p.s.phase==='meeting'));
+  assert.equal((await reporter.act('chat',{text:'Intro text'})).ok,false);
+  await advance(1900);
   assert.ok((await victim.act('chat',{text:'Ghost channel'})).ok);
   assert.ok((await reporter.act('chat',{text:'I found the incident.'})).ok);
   assert.equal((await reporter.act('chat',{text:'spam'})).ok,false);
@@ -168,11 +172,11 @@ test('engineer hatch travel is gated and the complete assignment pool wins the r
   assert.ok((await worker.act('vent',{dest:9})).ok);
   await until(()=>worker.s.self.ventIndex===9);
   assert.ok((await worker.act('vent',{action:'exit'})).ok);
-  const wire=tasks.find(v=>v.id==='wire'), badge=tasks.find(v=>v.id==='card').stops[0];
+  const wire=tasks.find(v=>v.instrument==='wire'&&worker.s.self.assignments.some(a=>a.id===v.id)), badge=tasks.find(v=>v.id==='card').stops[0];
   await Promise.all(crew.map(async p=>{
     for(const stop of wire.stops){
       await navigate(p,stop);
-      const open=await p.act('taskOpen',{id:'wire'});assert.ok(open.puzzle);
+      const open=await p.act('taskOpen',{id:wire.id});assert.ok(open.puzzle);
       for(const c of open.puzzle.left)assert.ok((await p.act('taskStep',{type:'pair',a:c,b:c})).ok);
     }
     await navigate(p,badge);
@@ -264,4 +268,53 @@ test('meeting keeps discussion and voting separate, supports a full anonymous ti
   assert.equal(host.s.meeting.result.target,null);
   await advance(4900);
   await until(()=>players.every(p=>p.s.phase==='play'&&p.s.self.alive));
+});
+
+test('a closed bulkhead blocks movement on every client and reopens on the server',{timeout:20000},async t=>{
+  const {host,players,advance}=await fixture(t);
+  assert.ok((await host.act('settings',{speed:240})).ok);
+  assert.ok((await host.act('start')).ok);
+  await advance(3100);
+  await advance(11000);
+  const villain=players.find(p=>p.s.self.team==='impostor');
+  const mover=players.find(p=>p!==villain);
+  const door=doors.find(d=>d.label==='Cafeteria · east hall');
+  await navigate(mover,door);
+  assert.match((await villain.act('sabotage',{kind:'doors',door:door.id})).error,/obstructed/i);
+  await drive(mover,door.x-49,door.y);
+  assert.ok((await villain.act('sabotage',{kind:'doors',door:door.id})).ok);
+  await until(()=>players.every(p=>p.s.doors.includes(door.id)));
+  for(let i=0;i<10;i++){
+    mover.socket.emit('move',{x:1,y:0});
+    await wait(55);
+  }
+  mover.socket.emit('move',{x:0,y:0});
+  assert.ok(mover.s.self.x<=door.x-16);
+  await advance(9600);
+  await until(()=>players.every(p=>!p.s.doors.includes(door.id)));
+  await drive(mover,door.x+38,door.y);
+  assert.ok(mover.s.self.x>door.x);
+});
+
+test('the sample analyzer keeps its countdown after cancel and reopening',{timeout:15000},async t=>{
+  const {host,advance}=await fixture(t,1);
+  assert.ok((await host.act('settings',{speed:240})).ok);
+  assert.ok((await host.act('start')).ok);
+  await advance(3100);
+  await advance(3500);
+  const station=tasks.find(v=>v.id==='sample').stops[0];
+  await navigate(host,station);
+  const opened=await host.act('taskOpen',{id:'sample'});
+  assert.equal(opened.puzzle.ready,null);
+  const started=await host.act('taskStep',{type:'beginSample'});
+  assert.ok(started.puzzle.ready);
+  assert.equal(started.puzzle.odd,undefined);
+  assert.ok((await host.act('taskClose')).ok);
+  await advance(12100);
+  const resumed=await host.act('taskOpen',{id:'sample'});
+  assert.equal(resumed.puzzle.ready,started.puzzle.ready);
+  assert.ok(Number.isInteger(resumed.puzzle.odd));
+  assert.equal((await host.act('taskStep',{type:'sample',a:resumed.puzzle.odd})).done,true);
+  assert.equal((await host.act('taskStep',{type:'sample',a:resumed.puzzle.odd})).ok,false);
+  await until(()=>host.s.progress.done===1);
 });

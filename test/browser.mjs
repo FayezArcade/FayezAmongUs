@@ -4,7 +4,7 @@ import {mkdir} from 'node:fs/promises';
 import {setTimeout as wait} from 'node:timers/promises';
 import {chromium} from 'playwright-core';
 import {createGameServer} from '../server/index.js';
-import {deck,contains,dist,terminal,tasks,repairs} from '../shared/deck.js';
+import {deck,contains,dist,terminal,tasks,repairs,doors} from '../shared/deck.js';
 
 import {deckWaypoints} from './deck-route.mjs';
 
@@ -99,7 +99,8 @@ try {
   assert.notEqual(host.s.self.y,old);
   await until(()=>guests.every(p=>p.s.positions.some(q=>q.id===host.s.self.id&&dist(q,host.s.self)<7)),'Movement reached remote browsers');
   await shot(host,'02-shuttle');
-  await host.page.keyboard.press('e');
+  assert.equal(await host.page.getByLabel('Chat message').count(),0);
+  await host.page.keyboard.press('Space');
   await host.page.getByRole('dialog',{name:'Suit locker'}).waitFor();
   assert.deepEqual(await host.page.locator('.suit-palette button').allTextContents(),[
     'Red','Blue','Green','Pink','Orange','Yellow','Black','White','Purple','Brown','Cyan','Lime','Maroon','Rose','Banana','Gray','Tan','Coral'
@@ -138,7 +139,7 @@ try {
   const operator=crew[0];
   await advance(13500);
   await navigate(operator,deck.cafe);
-  await operator.page.keyboard.press('e');
+  await operator.page.keyboard.press('Space');
   await until(()=>players.every(p=>p.s.phase==='meeting'&&p.s.meeting.kind==='emergency'),'Server starts the same emergency for all four clients');
   assert.equal(new Set(players.map(p=>p.s.meeting.start)).size,1);
   for(const p of players)await p.page.getByRole('heading',{name:'Emergency meeting',exact:true}).waitFor({timeout:3000});
@@ -163,13 +164,21 @@ try {
   await shot(operator,'22-characters-walking');
   await operator.page.keyboard.up('w');
 
+  assert.equal(await operator.page.getByLabel('Chat message').count(),0);
+  const map=await get(operator,'Map').boundingBox();
+  assert.ok(map.x>1300&&map.y<32);
   await get(operator,'Map').click();
   await shot(operator,'07-meridian-map');
-  await operator.page.keyboard.press('Escape');
-  const wire=tasks.find(t=>t.id==='wire').stops[0];
-  await navigate(operator,wire);
-  await shot(operator,'24-electrical');
-  await operator.page.keyboard.press('e');
+  await get(operator,'Map').click();
+  await operator.page.getByRole('dialog',{name:'Meridian deck plan'}).waitFor({state:'hidden'});
+  await operator.page.keyboard.press('m');
+  await operator.page.getByRole('dialog',{name:'Meridian deck plan'}).waitFor();
+  await operator.page.keyboard.press('m');
+  const wire=tasks.find(t=>t.instrument==='wire'&&operator.s.self.assignments.some(a=>a.id===t.id));
+  await navigate(operator,wire.stops[0]);
+  await operator.page.locator('.space-action').filter({hasText:'Fix Wiring'}).waitFor();
+  await shot(operator,'31-space-prompt');
+  await operator.page.keyboard.press('Space');
   await operator.page.getByRole('dialog',{name:'Fix Wiring'}).waitFor();
   for(const c of ['coral','teal','gold','iris']){
     const lead=operator.page.locator('[data-key=left][data-value='+c+']');
@@ -180,17 +189,17 @@ try {
       await lead.click();
       await socket.click();
     }
-    await until(()=>operator.s.self.assignments.some(a=>a.id==='wire'&&a.stage===1)||operator.s.puzzle?.matched?.includes(c),'Cable pair '+c);
+    await until(()=>operator.s.self.assignments.some(a=>a.id===wire.id&&a.stage===1)||operator.s.puzzle?.matched?.includes(c),'Cable pair '+c);
     if(c==='teal')await shot(operator,'08-cable-task');
   }
-  await until(()=>operator.s.self.assignments.some(a=>a.id==='wire'&&a.stage===1&&!a.done),'Wiring advances to the next room');
+  await until(()=>operator.s.self.assignments.some(a=>a.id===wire.id&&a.stage===1&&!a.done),'Wiring advances to the next room');
   assert.equal(operator.s.progress.done,0);
   const badge=tasks.find(t=>t.id==='card').stops[0];
   await navigate(operator,badge);
   await get(operator,'Map').click();
   assert.equal(await stationMarker(operator,badge),true);
   await operator.page.keyboard.press('Escape');
-  await operator.page.keyboard.press('e');
+  await operator.page.keyboard.press('Space');
   await operator.page.getByRole('dialog',{name:'Swipe Card'}).waitFor();
   await shot(operator,'09-badge-task');
   const badgeButton=operator.page.getByRole('button',{name:'Swipe access badge'});
@@ -210,7 +219,7 @@ try {
   await get(infiltrator,'LIGHTS').click();
   await until(()=>crew.every(p=>p.s.sabotage?.kind==='lights'),'Lights disruption reaches crew');
   await navigate(operator,repairs.lights[0]);
-  await operator.page.keyboard.press('e');
+  await operator.page.keyboard.press('Space');
   await operator.page.getByRole('dialog',{name:'Lights recovery'}).waitFor();
   await shot(operator,'10-sabotage-repair');
   const switches=operator.s.sabotage.pattern.flatMap((on,i)=>on?[]:[i]);
@@ -224,7 +233,8 @@ try {
   await until(()=>!victim.s.self.alive,'Victim becomes ghost');
   await navigate(reporter,victim.s.self);
   await until(()=>reporter.s.bodies.some(b=>b.id===victim.s.self.id&&dist(b,reporter.s.self)<60),'Incident is within report range');
-  await reporter.page.keyboard.press('r');
+  await reporter.page.locator('.space-action').filter({hasText:'Report incident'}).waitFor();
+  await reporter.page.keyboard.press('Space');
   await until(()=>players.every(p=>p.s.phase==='meeting'&&p.s.meeting.kind==='report'),'Incident opens the same meeting on all clients');
   assert.ok(players.every(p=>p.s.meeting.caller===reporter.s.self.id&&p.s.meeting.introUntil===reporter.s.meeting.introUntil));
   for(const p of players)await p.page.getByRole('heading',{name:'Body reported',exact:true}).waitFor({timeout:3000});
@@ -234,9 +244,29 @@ try {
     await p.page.getByText(/^DISCUSSION:/).waitFor();
     await p.page.locator('.ballot-row').filter({hasText:reporter.name}).getByRole('img',{name:'Body reporter',exact:true}).waitFor();
   }
-  await reporter.page.getByLabel('Chat message').fill('I found a suit in the cafeteria.');
+  const message=reporter.page.getByLabel('Chat message');
+  await get(reporter,'Chat').click();
+  await message.fill('I found a suit in the');
+  await message.press('End');
+  await message.press('Space');
+  await message.pressSequentially('cafeteria.');
+  assert.equal(await message.inputValue(),'I found a suit in the cafeteria.');
+  await get(reporter,'Ballot').click();
+  await get(reporter,'Chat').click();
+  assert.equal(await message.inputValue(),'I found a suit in the cafeteria.');
   await get(reporter,'Send').click();
+  await operator.page.locator('#unread-chat').filter({hasText:'1'}).waitFor();
+  await get(reporter,'Chat').click();
+  await shot(reporter,'32-meeting-chat');
+  await operator.page.locator('#meeting-chat-button').click();
   await operator.page.getByText('I found a suit in the cafeteria.').waitFor();
+  await operator.page.locator('#unread-chat').waitFor({state:'hidden'});
+  await get(operator,'Ballot').click();
+  await operator.page.locator('.ballot-row').filter({hasText:reporter.name}).getByRole('button',{name:'Mute',exact:true}).click();
+  await get(operator,'Chat').click();
+  assert.equal(await operator.page.getByText('I found a suit in the cafeteria.').count(),0);
+  await get(operator,'Ballot').click();
+  await get(reporter,'Ballot').click();
   assert.equal(await reporter.page.locator('.ballot-row img.suit-avatar').count(),4);
   await shot(reporter,'11-meeting');
   await advance(5300);
@@ -268,7 +298,7 @@ try {
   await until(()=>solo.s?.roster.length===1,'Single player lobby');
   const code=solo.s.code;
   await drive(solo,terminal.x,terminal.y);
-  await solo.page.keyboard.press('e');
+  await solo.page.keyboard.press('Space');
   await solo.page.getByRole('dialog',{name:'Suit locker'}).waitFor();
   assert.equal(await solo.page.locator('.suit-palette button:enabled').count(),18);
   await shot(solo,'21-color-grid');
@@ -296,11 +326,74 @@ try {
   await get(solo,'Deck overview').click();
   await shot(solo,'26-full-deck');
   await solo.page.keyboard.press('Escape');
-  for(const [room,file] of [[deck.storage,'29-storage'],[deck.electrical,'30-solo-electrical'],[deck.reactor,'27-reactor'],[deck.nav,'28-navigation']]){
+  const hatch=doors.find(d=>d.label==='Cafeteria · east hall');
+  await navigate(solo,{x:hatch.x+40,y:hatch.y});
+  await shot(solo,'33-hall-open');
+  await get(solo,'Test controls').click();
+  await get(solo,'Sabotage').click();
+  await solo.page.getByLabel('Bulkhead').selectOption(String(hatch.id));
+  await get(solo,'Seal bulkhead').click();
+  await until(()=>solo.s.doors.includes(hatch.id),'East corridor shutter closes');
+  await shot(solo,'34-hall-closed');
+  await advance(9800);
+  await until(()=>!solo.s.doors.includes(hatch.id),'East corridor shutter reopens');
+  const demonstrations=new Map([
+    ['electrical',['calibrate','35-calibrate']],['reactor',['reactor','36-start-reactor']],
+    ['nav',['chart','37-chart-course']],['oxygen',['filter','38-oxygen-filter']]
+  ]);
+  for(const [room,file] of [[deck.storage,'29-storage'],[deck.electrical,'30-solo-electrical'],[deck.reactor,'27-reactor'],[deck.nav,'28-navigation'],[deck.oxygen,'39-oxygen']]){
     await navigate(solo,room);
     assert.ok(contains(room,solo.s.self.x,solo.s.self.y));
     await shot(solo,file);
+    const example=demonstrations.get(room.id);
+    if(!example)continue;
+    const task=tasks.find(t=>t.id===example[0]);
+    await navigate(solo,task.stops[0]);
+    await solo.page.locator('.space-action').filter({hasText:task.label}).waitFor();
+    await solo.page.keyboard.press('Space');
+    await solo.page.getByRole('dialog',{name:task.label}).waitFor();
+    await shot(solo,example[1]);
+    if(task.id==='chart'){
+      const points=await solo.page.locator('[data-key=waypoint]').all();
+      for(const [i,point] of points.entries()){
+        const b=await point.boundingBox();
+        await solo.page.mouse.move(b.x+b.width/2,b.y+b.height/2);
+        if(i===0)await solo.page.mouse.down();
+        await until(()=>solo.s.puzzle?.progress===i+1||solo.s.self.assignments.some(a=>a.id==='chart'&&a.done),'Dragged chart waypoint '+i);
+      }
+      await solo.page.mouse.up();
+    }else if(task.id==='filter'){
+      const particles=[0,1,2,3,4].map(i=>solo.page.locator('[data-key=clear][data-value="'+i+'"]'));
+      const exhaust=await solo.page.locator('.filter-exhaust').boundingBox();
+      for(const point of particles){
+        const b=await point.boundingBox(), count=solo.s.puzzle.debris.length;
+        await solo.page.mouse.move(b.x+b.width/2,b.y+b.height/2);
+        await solo.page.mouse.down();
+        await solo.page.mouse.move(exhaust.x+exhaust.width/2,exhaust.y+exhaust.height/2,{steps:5});
+        await solo.page.mouse.up();
+        await until(()=>solo.s.puzzle?.debris?.length===count-1||solo.s.self.assignments.some(a=>a.id==='filter'&&a.done),'Dragged intake particle');
+      }
+    }else await solo.page.keyboard.press('Escape');
   }
+  const sample=tasks.find(t=>t.id==='sample');
+  await navigate(solo,sample.stops[0]);
+  await solo.page.setViewportSize({width:412,height:756});
+  const touchPrompt=solo.page.locator('.space-action').filter({hasText:sample.label});
+  await touchPrompt.waitFor();
+  const promptBox=await touchPrompt.boundingBox();
+  assert.ok(Math.abs(promptBox.x+promptBox.width/2-206)<2);
+  assert.ok((await get(solo,'Map').boundingBox()).x>350);
+  await touchPrompt.click();
+  await solo.page.getByRole('dialog',{name:sample.label}).waitFor();
+  await get(solo,'Start analysis').click();
+  await solo.page.keyboard.press('Escape');
+  await advance(12100);
+  await solo.page.setViewportSize({width:1365,height:835});
+  await solo.page.keyboard.press('Space');
+  await solo.page.locator('.samples .anomaly').waitFor();
+  await shot(solo,'40-sample-analysis');
+  await solo.page.locator('.samples .anomaly').click();
+  await until(()=>solo.s.self.assignments.some(a=>a.id==='sample'&&a.done),'Sample completes using the preserved analyzer');
   await get(solo,'Test controls').click();
   await solo.page.getByLabel('Practice role').selectOption('scientist');
   await get(solo,'Apply role').click();

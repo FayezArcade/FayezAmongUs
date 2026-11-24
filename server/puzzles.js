@@ -17,7 +17,7 @@ export function puzzle(id,stage,now,instrument=id) {
     case 'sequence': {const sequence=Array.from({length:10},(_,i)=>i+1);return {...p,sequence,keys:shuffle(sequence)};}
     case 'chart': return {...p,waypoints:[40,randomInt(19,56),randomInt(45,79),randomInt(24,59),60]};
     case 'reactor': return {...p,sequence:Array.from({length:5},()=>randomInt(1,10)),level:1,reveal:now+1250};
-    case 'sample': return {...p,odd:randomInt(4),ready:now+4800};
+    case 'sample': return {...p,odd:randomInt(5),ready:null};
     case 'target': return {...p,lane:randomInt(5),period:850};
     case 'card': return {...p,from:null};
     case 'shield': return {...p,active:[false,true,false,true,false,false]};
@@ -54,8 +54,10 @@ export function stepPuzzle(p,action,now) {
       if(type!=='waypoint'||a!==p.progress)return wrong('Follow the marked route in order.');
       return {done:++p.progress===p.waypoints.length};
     case 'sample':
+      if(type==='beginSample'&&p.ready===null){p.ready=now+12000;return {};}
+      if(p.ready===null)return wrong('Start the analysis first.');
       if(type!=='sample'||now<p.ready) return wrong('Samples are processing.');
-      if(a!==p.odd) {p.ready=now+3000;p.odd=randomInt(4);return wrong('Retesting the samples.');}
+      if(a!==p.odd) {p.ready=now+3000;p.odd=randomInt(5);return wrong('Retesting the samples.');}
       return {done:true};
     case 'target': {
       const frame=Math.floor((now-p.start)/p.period);
@@ -94,7 +96,7 @@ export function stepPuzzle(p,action,now) {
 export function publicPuzzle(p,now) {
   if(!p) return null;
   const copy={...p};
-  if(p.instrument==='sample'&&now<p.ready) delete copy.odd;
+  if(p.instrument==='sample'&&(p.ready===null||now<p.ready)) delete copy.odd;
   if(p.instrument==='reactor'){
     const cue=Math.floor((now-(p.reveal-750*p.level-500))/750);
     delete copy.sequence;

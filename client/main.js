@@ -1,5 +1,5 @@
 import {io} from 'socket.io-client';
-import {colors,suitPalette,hats,rooms,deckRevision,deck,doors,vents,ventDestinations,tasks,repairs,terminal,meetingPoint,emergencyRange,contains,dist} from '../shared/deck.js';
+import {colors,suitPalette,hats,rooms,deckRevision,deck,doors,vents,ventDestinations,tasks,taskStageName,repairs,terminal,meetingPoint,emergencyRange,contains,clearDeckLine,dist} from '../shared/deck.js';
 import {special} from '../shared/roles.js';
 import {astronaut,renderer,drawMap,drawDeckOverview,suitPortrait} from './art.js';
 import {taskPanel} from './tasks.js';
@@ -22,7 +22,11 @@ const portrait=(color,hat,alive)=>`<img class="suit-avatar" src="${suitPortrait(
 const brand='FAYEZ CREW';
 const roleName=p=>special[p.alive?p.role:p.ghost]?.name||(p.alive?p.team==='impostor'?'Infiltrator':'Crewmate':p.team==='impostor'?'Infiltrator Ghost':'Crew Ghost');
 
-let selectedVote=null;
+let selectedVote=null,meetingTab='ballot',chatSeen=0;
+const mapButton=id=>btn('<span class="map-symbol" aria-hidden="true"><i></i><i></i><i></i></span>','map','map-toggle',
+  'id="'+id+'" aria-label="Map" title="Map [M]" aria-expanded="'+(id==='map-open'?'false':'true')+'"');
+const promptButton=action=>action?btn('<kbd>SPACE</kbd> '+escape(action.label),'interact','space-action'):'';
+
 let state=null,session=null,joining=false,entry=null,modal=null,phase='',skew=0,noticeTimer,wasReady=false,uiKey='',audio;
 const held=new Set(), touch=new Set(), muted=new Set();
 const nickname=()=>localStorage.getItem('fayez-name')||'';
@@ -104,7 +108,7 @@ socket.on('state',s=>{
   if(!session||s.self.id!==session.id)return;
   skew=s.now-Date.now();const old=state;state=s;wasReady=true;
   if(phase!==s.phase){
-    phase=s.phase;uiKey='';selectedVote=null;closeModal(false);held.clear();touch.clear();notice('');
+    phase=s.phase;uiKey='';selectedVote=null;meetingTab='ballot';chatSeen=0;closeModal(false);held.clear();touch.clear();notice('');
     tone(({lobby:'ok',reveal:'launch',meeting:'alarm',verdict:'vote',result:'ok'})[phase]||'tap');
   }
   if(old?.phase==='countdown'&&s.phase==='lobby')notice('Launch canceled because a player disconnected.');
@@ -115,7 +119,12 @@ socket.on('state',s=>{
 });
 function closeModal(cancel=true) {
   if(cancel&&modal?.kind==='task')void command('taskClose');
+  const mapWasOpen=modal?.kind==='map';
   modal=null;layer.replaceChildren();touch.clear();
+  if(mapWasOpen){
+    const button=document.getElementById('map-open');
+    if(button)button.hidden=false;
+  }
 }
 function panel(kind,title,body,options={}){
   modal={kind,...options};modalShell('MERIDIAN FLIGHT SYSTEMS',title,body,options.className||'');
@@ -128,7 +137,7 @@ function hud(){
   const roleText=s.solo?'SOLO TEST MODE':roleName(me).toUpperCase();
   screen.innerHTML=`<main class="hud ${inLobby?'dropship-hud':''}">${inLobby?`
     <aside class="lobby-summary"><h2>Flight settings</h2><div id="lobby-settings"></div><div class="side-info" id="side-info"></div></aside>
-    <div class="lobby-actions actions">${btn('Chat','chat','outline')}${captain?btn('Settings','settings','outline'):''}${btn('Leave','leave','quiet')}</div>
+    <div class="lobby-actions actions">${captain?btn('Settings','settings','outline'):''}${btn('Leave','leave','quiet')}</div>
     <div class="boarding">
       ${captain?btn('START','start','start-launch','id="start-flight"'):''}
       <p class="launch-hint" id="launch-hint"></p>
@@ -137,25 +146,29 @@ function hud(){
         <button type="button" data-do="copy" class="outline copy-code">COPY CODE</button>
         <div class="count"><small>PLAYER COUNT</small><strong id="crew-count"></strong></div>
       </div>
-    </div>`:`<header class="topbar"><div class="wordmark">${brand}</div><div class="flight-data"><div class="bar"><small>SHIP RESTORATION <span id="task-count"></span></small><progress max="1" value="0" id="task-progress"></progress></div></div><div class="tag">${roleText}</div></header><div class="side-info" id="side-info"></div>`}
+    </div>`:`<header class="topbar"><div class="wordmark">${brand}</div><div class="flight-data"><div class="bar"><small>SHIP RESTORATION <span id="task-count"></span></small><progress max="1" value="0" id="task-progress"></progress></div></div><div class="tag">${roleText}</div>${mapButton('map-open')}</header><aside class="deck-brief" id="side-info"></aside>`}
     <div class="alert" id="emergency" hidden></div>
-  <footer class="controls"><div class="controls-hint"><span>WASD / ↑↓←→</span> Move <span>E</span> Interact</div>${inLobby?'':`<div class="actions">${btn('Map','map')}${btn('Tasks','tasks')}${btn('Interact','interact','primary')}${me.team==='impostor'?btn('Sabotage','sabotage','danger'):''}${me.role||me.ghost?btn('Ability','ability'):''}${s.solo?btn('Test controls','practice','outline'):''}</div>`}</footer><div class="touch" aria-label="Movement controls">${[['up','↑'],['left','←'],['down','↓'],['right','→']].map(([d,label])=>`<button type="button" data-move="${d}" aria-label="Move ${d}">${label}</button>`).join('')}</div><div class="prompt" id="prompt"></div></main>`;
+  <footer class="controls"><div class="controls-hint"><span>WASD / ↑↓←→</span> Move <span>SPACE</span> Use</div>${inLobby?'':`<div class="actions">${me.team==='impostor'&&me.alive?btn('Eliminate','strike','danger','id="strike-action"'):''}${me.team==='impostor'?btn('Sabotage','sabotage','danger'):''}${me.role||me.ghost?btn('Ability','ability'):''}${s.solo?btn('Test controls','practice','outline'):''}</div>`}</footer><div class="touch" aria-label="Movement controls">${[['up','↑'],['left','←'],['down','↓'],['right','→']].map(([d,label])=>`<button type="button" data-move="${d}" aria-label="Move ${d}">${label}</button>`).join('')}</div><div class="prompt" id="prompt"></div></main>`;
 }
 function contextAction(){
   const s=state,p=s.self;
   if(s.phase==='lobby')return dist(p,terminal)<76?{label:'Open suit locker',kind:'suit'}:null;
   if(s.phase!=='play')return null;
   if(Number.isInteger(p.ventIndex))return {label:'Open hatch controls',kind:'vent'};
-  const b=p.alive&&nearest(s.bodies,p,70);
+  const line=point=>!p.alive||clearDeckLine(p,point,s.doors);
+  const b=p.alive&&nearest(s.bodies.filter(line),p,70);
   if(b)return {label:'Report incident',kind:'report',data:{id:b.id}};
   if(s.sabotage?.nearby.length)return {label:'Repair '+s.sabotage.kind,kind:'repair'};
-  const available=p.assignments.filter(a=>!a.done).map(a=>({...tasks.find(t=>t.id===a.id).stops[a.stage],id:a.id}));
-  const a=nearest(available,p,56);
-  if(a&&s.sabotage?.kind!=='comms')return {label:tasks.find(t=>t.id===a.id).label,kind:'task',data:a.id};
-  if(p.alive&&(p.team==='impostor'||p.effect==='engineer')&&vents.some(v=>dist(p,v)<48))return {label:'Use service hatch',kind:'vent'};
-  if(p.alive&&dist(p,meetingPoint)<emergencyRange&&p.emergencies>0&&!s.sabotage&&now()>p.meetingAt)return {label:'Call emergency assembly',kind:'emergency'};
-  if(p.alive&&dist(p,deck.admin)<85&&s.sabotage?.kind!=='comms')return {label:'View command telemetry',kind:'monitor',data:'command'};
-  if(p.alive&&dist(p,deck.security)<85&&s.sabotage?.kind!=='comms')return {label:'View camera feeds',kind:'monitor',data:'security'};
+  const available=p.assignments.filter(a=>!a.done).map(a=>{
+    const task=tasks.find(t=>t.id===a.id);
+    return {...task.stops[a.stage],id:a.id,label:taskStageName(task,a.stage)};
+  });
+  const a=nearest(available.filter(line),p,56);
+  if(a&&s.sabotage?.kind!=='comms')return {label:a.label,kind:'task',data:a.id};
+  if(p.alive&&(p.team==='impostor'||p.effect==='engineer')&&vents.some(v=>dist(p,v)<48&&line(v)))return {label:'Use service hatch',kind:'vent'};
+  if(p.alive&&dist(p,meetingPoint)<emergencyRange&&line(meetingPoint)&&p.emergencies>0&&!s.sabotage&&now()>p.meetingAt)return {label:'Call emergency assembly',kind:'emergency'};
+  if(p.alive&&dist(p,deck.admin)<85&&line(deck.admin)&&s.sabotage?.kind!=='comms')return {label:'View command telemetry',kind:'monitor',data:'command'};
+  if(p.alive&&dist(p,deck.security)<85&&line(deck.security)&&s.sabotage?.kind!=='comms')return {label:'View camera feeds',kind:'monitor',data:'security'};
   return null;
 }
 function update(){
@@ -177,20 +190,27 @@ function update(){
     }
     markup('lobby-settings',`<dl><div><dt>Map</dt><dd>Meridian</dd></div><div><dt>Infiltrators</dt><dd>${settings.impostors}</dd></div><div><dt>Discussion</dt><dd>${settings.discussion}s</dd></div><div><dt>Voting</dt><dd>${settings.voting}s</dd></div><div><dt>Tasks</dt><dd>${settings.commonTasks} / ${settings.shortTasks} / ${settings.longTasks}</dd></div></dl>`);
     markup('side-info',s.roster.map(q=>`<div>${tag(q.color)}${escape(q.name)}${q.id===s.host?' <span>CAPTAIN</span>':''}${!q.online?' <span>OFFLINE</span>':''}</div>`).join(''));
-    markup('prompt',contextAction()?btn('<kbd>E</kbd> Open suit locker','interact'):'');
+    markup('prompt',promptButton(contextAction()));
   }
   if(s.phase==='countdown')document.querySelector('#countdown-number').textContent=Math.max(1,Math.ceil((s.until-now())/1000));
   if(s.phase==='play'){
     const progress=document.querySelector('#task-progress');progress.value=s.progress.total?s.progress.done/s.progress.total:0;
     document.querySelector('#task-count').textContent=s.progress.done+' / '+s.progress.total;
     const current=rooms.find(r=>contains(r,p.x,p.y))?.name||'Transit';
-    const kill=p.team==='impostor'&&p.alive;
-    markup('side-info',`<div class="room-label">${current}</div>${!p.alive?'<div>GHOST · Move through bulkheads</div>':''}${kill?btn(now()>=p.killAt?'Eliminate [Q]':'Eliminate '+clock(p.killAt,now())+'s','strike','danger'):''}`);
+    const stationList=s.sabotage?.kind==='comms'?'<li>Communications offline</li>':
+      p.assignments.filter(a=>!a.done).slice(0,4).map(a=>{
+        const task=tasks.find(t=>t.id===a.id),stop=task.stops[a.stage];
+        return '<li><span>'+escape(taskStageName(task,a.stage))+'</span><small>'+escape(deck[stop.room].name)+(task.stops.length>1?' · '+(a.stage+1)+'/'+task.stops.length:'')+'</small></li>';
+      }).join('')||'<li>Assignments complete</li>';
+    markup('side-info',`<div class="room-label">${current}</div>${!p.alive?'<div class="room-note">GHOST · Move through bulkheads</div>':''}
+      <div class="task-brief">${btn(p.team==='impostor'?'Cover tasks':'Tasks','tasks','quiet')}<ul>${stationList}</ul></div>`);
+    const strike=document.getElementById('strike-action');
+    if(strike){strike.disabled=now()<p.killAt;strike.textContent=strike.disabled?'Eliminate '+clock(p.killAt,now())+'s':'Eliminate [Q]';}
     const danger=document.querySelector('#emergency');danger.hidden=!s.sabotage;
     if(s.sabotage)danger.textContent=s.sabotage.kind.toUpperCase()+' FAILURE'+(s.sabotage.until?' · '+clock(s.sabotage.until,now())+'s':' · Find a repair station');
-    const action=contextAction();markup('prompt',action?btn('<kbd>E</kbd> '+escape(action.label),'interact'):'');
+    markup('prompt',promptButton(contextAction()));
   }
-  if(s.phase==='meeting'&&!intro)refreshMeeting();
+  if(s.phase==='meeting'&&!intro){refreshMeeting();refreshChat();}
   if(modal?.kind==='suit'&&dist(p,terminal)>=76)closeModal(false);
   for(const [id,end] of [['ability-time',p.abilityAt],['effect-time',p.effectUntil]]){
     const timer=document.getElementById(id);if(timer){timer.textContent=clock(end||0,now());if(timer.textContent==='00')abilityPanel();}
@@ -206,7 +226,6 @@ function update(){
       now()>=p.sabotageAt?'Ready to disrupt':'Cooldown · '+clock(p.sabotageAt,now())+'s';
   }
   if(modal?.kind==='map')drawMap(layer.querySelector('canvas'),s);
-  if(modal?.kind==='chat'||s.phase==='meeting')refreshChat();
   if(modal?.kind==='task'){
     if(s.puzzle?.id!==modal.id&&!modal.pending&&now()-modal.openedAt>300)closeModal(false);
     else if(s.puzzle)modal.task.update(s.puzzle,now());
@@ -241,9 +260,13 @@ function cinematic(){
       <div class="assembly-illustration">${portrait(caller?.color,caller?.hat,true)}${illustration}</div><div class="assembly-stripes"></div></main>`;
     }else{
       screen.innerHTML=`<main class="meeting tablet-meeting"><div class="tablet-frame"><div class="tablet-screen">
-      <header><h1>WHO IS THE IMPOSTOR?</h1><p class="meeting-caller">${escape(byline)}${s.solo?' · Solo drill':''}</p><p id="meeting-time"></p></header>
-      <div class="tablet-layout"><section><div id="ballot" class="ballot-grid"></div><div id="ballot-controls"></div></section>
-      <section class="tablet-comms"><h2>Meeting chat</h2>${chatForm()}</section></div></div></div></main>`;
+      <header><div class="meeting-heading"><h1>WHO IS THE IMPOSTOR?</h1>
+      <div class="meeting-tabs" aria-label="Meeting views">
+        ${btn('Ballot','meeting-tab','outline','data-id="ballot" id="meeting-ballot-button" aria-controls="meeting-ballot"')}
+        ${btn('<span class="chat-symbol" aria-hidden="true"></span> Chat <span id="unread-chat" hidden></span>','meeting-tab','outline','data-id="chat" id="meeting-chat-button" aria-controls="meeting-chat"')}</div></div>
+      <p class="meeting-caller">${escape(byline)}${s.solo?' · Solo drill':''}</p><p id="meeting-time"></p></header>
+      <div class="meeting-views"><section id="meeting-ballot"><div id="ballot" class="ballot-grid"></div><div id="ballot-controls"></div></section>
+      <section id="meeting-chat" class="tablet-comms" hidden><h2>Meeting chat</h2>${chatForm()}</section></div></div></div></main>`;
     }
   }else if(s.phase==='verdict'){
     const v=s.meeting.result;
@@ -278,7 +301,17 @@ function refreshMeeting(){
 function refreshChat(){
   const box=document.querySelector('#messages');
   if(!box)return;
-  const msg=state.chat.filter(q=>!muted.has(q.id)).map(q=>`<p>${tag(q.color)} <b>${escape(q.name)}${q.ghost?' · Ghost':''}</b> ${escape(q.text)}</p>`).join('')||'<p class="muted">Channel is quiet.</p>';
+  const messages=state.chat.filter(q=>!muted.has(q.id));
+  if(meetingTab==='chat')chatSeen=Math.max(chatSeen,messages.at(-1)?.sequence||0);
+  const unread=messages.filter(q=>q.sequence>chatSeen&&q.id!==state.self.id).length;
+  const badge=document.querySelector('#unread-chat');
+  badge.hidden=unread===0;badge.textContent=unread;
+  const chatActive=meetingTab==='chat';
+  document.querySelector('#meeting-chat').hidden=!chatActive;
+  document.querySelector('#meeting-ballot').hidden=chatActive;
+  document.querySelector('#meeting-chat-button').setAttribute('aria-pressed',String(chatActive));
+  document.querySelector('#meeting-ballot-button').setAttribute('aria-pressed',String(!chatActive));
+  const msg=messages.map(q=>`<p>${tag(q.color)} <b>${escape(q.name)}${q.ghost?' · Ghost':''}</b> ${escape(q.text)}</p>`).join('')||'<p class="muted">Channel is quiet.</p>';
   if(box.dataset.content===msg)return;
   const bottom=box.scrollTop+box.clientHeight>box.scrollHeight-42;
   box.innerHTML=msg;box.dataset.content=msg;if(bottom)box.scrollTop=box.scrollHeight;
@@ -298,7 +331,7 @@ function suitPanel(){
 function missionList(){
   if(state.sabotage?.kind==='comms'){panel('tasks','Assignments offline','<p>Restore comms to recover ship assignments.</p>');return;}
   const p=state.self;
-  panel('tasks',p.team==='impostor'?'Cover assignments':'Assigned maintenance',`<ul class="mission-list">${p.assignments.map(a=>{const task=tasks.find(v=>v.id===a.id);return '<li class="'+(a.done?'done':'')+'"><b>'+escape(task.label)+'</b><span>'+(a.done?'Complete':deck[task.stops[a.stage].room].name+' • '+task.kind+(task.stops.length>1?' '+(a.stage+1)+'/'+task.stops.length:''))+'</span></li>';}).join('')}</ul>`);
+  panel('tasks',p.team==='impostor'?'Cover assignments':'Assigned maintenance',`<ul class="mission-list">${p.assignments.map(a=>{const task=tasks.find(v=>v.id===a.id);return '<li class="'+(a.done?'done':'')+'"><b>'+escape(a.done?task.label:taskStageName(task,a.stage))+'</b><span>'+(a.done?'Complete':deck[task.stops[a.stage].room].name+' • '+task.kind+(task.stops.length>1?' '+(a.stage+1)+'/'+task.stops.length:'')+(task.instrument==='route'&&a.stage===0?' → '+deck[task.stops[1].room].name:''))+'</span></li>';}).join('')}</ul>`);
 }
 function repairPanel(){
   const s=state.sabotage, station=s?.nearby[0];if(!station)return;
@@ -340,14 +373,14 @@ async function interact(){
     const res=await command('taskOpen',{id:action.data});
     if(!res.ok||state.phase!=='play')return;
     const task=tasks.find(t=>t.id===action.data);
-    panel('task',task.label,'<div id="instrument"></div>',{id:task.id,openedAt:now(),className:'instrument'});
+    panel('task',taskStageName(task,res.puzzle.stage),'<div id="instrument"></div>',{id:task.id,openedAt:now(),className:'instrument'});
     const opening=modal;
     opening.task=taskPanel(layer.querySelector('#instrument'),res.puzzle,now,async value=>{
       if(modal!==opening||opening.pending)return {ok:false};
       opening.pending=true;
       const step=await command('taskStep',value);
       opening.pending=false;
-      if(step.done){tone('ok');notice('Station verified.');closeModal(false);}
+      if(step.done&&modal===opening){tone('ok');notice('Station verified.');closeModal(false);}
       return step;
     });
     return;
@@ -389,7 +422,10 @@ async function click(b){
   if(!state)return;
   const s=state,p=s.self;
   if(action==='settings')settingsPanel();
-  if(action==='chat'){panel('chat','Shuttle intercom',chatForm());refreshChat();}
+  if(action==='meeting-tab'&&s.phase==='meeting'){
+    meetingTab=id;refreshChat();
+    if(id==='chat')document.querySelector('#chat-form input').focus();
+  }
   if(action==='tasks')missionList();
   if(action==='ability')abilityPanel();
   if(action==='practice'&&s.solo){
@@ -408,14 +444,15 @@ async function click(b){
   }
   if(action==='practice-clear'&&(await command('practiceClear')).ok){closeModal(false);notice('Ship systems restored.');}
   if(action==='practice-return')await command('practiceReturn');
-  if(action==='map'){
+  if(action==='map'&&s.phase==='play'){
+    if(modal?.kind==='map'){closeModal(false);return;}
     panel('map','Meridian deck plan','<canvas class="map" width="950" height="626"></canvas><div class="map-legend"><span>● Your position</span><span>● Assigned station</span><span>● Active repairs</span></div>',{className:'map-panel blue-map'});
+    document.getElementById('map-open').hidden=true;
+    layer.firstElementChild.insertAdjacentHTML('beforeend',mapButton('map-close'));
     drawMap(layer.querySelector('canvas'),state);
   }
   if(action==='sabotage'&&s.phase==='play'&&(p.team==='impostor'||s.solo)){
-    panel('sabotage','Sabotage controls',`<canvas class="map sabotage-map" width="900" height="594"></canvas><p id="sabotage-status"></p><p class="sabotage-legend">Dashed lines show hatch links. Squares show bulkheads. L / C / O / R mark lights, comms, oxygen and reactor.</p><div class="targets">${Object.keys(repairs).map(k=>btn(k.toUpperCase(),'target-sabotage','danger','data-id="'+k+'"')).join('')}</div><label>Bulkhead<select id="door">${doors.map((d,i)=>{
-      return '<option value="'+i+'">'+deck[d.a].name+' / '+deck[d.b].name+'</option>';
-    }).join('')}</select></label>${btn('Seal bulkhead','target-sabotage','outline','data-id="doors"')}`,{className:'map-panel'});
+    panel('sabotage','Sabotage controls',`<canvas class="map sabotage-map" width="900" height="594"></canvas><p id="sabotage-status"></p><p class="sabotage-legend">Dashed lines show hatch links. Squares show bulkheads. L / C / O / R mark lights, comms, oxygen and reactor.</p><div class="targets">${Object.keys(repairs).map(k=>btn(k.toUpperCase(),'target-sabotage','danger','data-id="'+k+'"')).join('')}</div><label>Bulkhead<select id="door">${doors.map(d=>'<option value="'+d.id+'">'+escape(d.label)+'</option>').join('')}</select></label>${btn('Seal bulkhead','target-sabotage','outline','data-id="doors"')}`,{className:'map-panel'});
     drawMap(layer.querySelector('canvas'),state,true);
   }
   if(action==='target-sabotage'&&(await command('sabotage',{kind:id,door:Number(document.querySelector('#door').value)})).ok)closeModal(false);
@@ -461,7 +498,11 @@ async function click(b){
     await command('leave');session=null;state=null;phase='';sessionStorage.removeItem('fayez-session');closeModal(false);home();
   }
 }
-document.addEventListener('click',e=>{const b=e.target.closest('[data-do]');if(b)void click(b);});
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-do]');if(!b)return;
+  if(e.detail>0&&b.closest('.hud'))b.blur();
+  void click(b);
+});
 document.addEventListener('change',e=>{if(e.target.matches('#hat,#show-name'))void suitChange();});
 document.addEventListener('submit',async e=>{
   const form=e.target;
@@ -486,11 +527,13 @@ document.addEventListener('submit',async e=>{
 const directions={arrowup:'up',w:'up',arrowdown:'down',s:'down',arrowleft:'left',a:'left',arrowright:'right',d:'right'};
 addEventListener('keydown',e=>{
   if(e.key==='Escape'&&modal){closeModal();return;}
-  if(!state||e.target.matches?.('input,textarea,select')||e.ctrlKey||e.metaKey||e.altKey)return;
+  if(!state||e.target.closest?.('input,textarea,select,[contenteditable]')||e.ctrlKey||e.metaKey||e.altKey)return;
   const k=e.key.toLowerCase();
   if(directions[k]&&(!modal||modal.kind==='map')){held.add(k);e.preventDefault();}
+  if(k===' '&&!modal&&['play','lobby'].includes(state.phase)&&!e.target.closest?.('button')){
+    e.preventDefault();if(!e.repeat)void interact();return;
+  }
   if(e.repeat)return;
-  if(!modal&&(k==='e'||k===' ')){e.preventDefault();void interact();}
   if(!modal&&k==='r'&&state.phase==='play'){
     const body=nearest(state.bodies,state.self,70);
     if(body)void command('report',{id:body.id});
