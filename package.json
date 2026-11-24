@@ -11,7 +11,8 @@
     "start": "node server/index.js",
     "build": "vite build",
     "test": "node --test test/*.test.js",
-    "test:browser": "node test/browser.mjs"
+    "test:browser": "node test/browser.mjs",
+    "test:instruments": "node test/instruments.mjs"
   },
   "dependencies": {
     "socket.io": "^4.8.3",

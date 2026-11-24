@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {deckWaypoints} from './deck-route.mjs';
 import {puzzle,publicPuzzle,stepPuzzle} from '../server/puzzles.js';
-import {rooms,routes,doors,entrances,tasks,repairs,vents,deck,walkable,clearDeckLine} from '../shared/deck.js';
+import {rooms,routes,doors,entrances,tasks,taskRange,repairs,vents,deck,walkable,clearDeckLine,dist} from '../shared/deck.js';
 
 test('all deck rooms are connected, stations are reachable and doors block transit',()=>{
   for(const room of rooms)assert.ok(deckWaypoints(deck.cafe,room).length>1,room.name);
@@ -19,6 +19,12 @@ test('all deck rooms are connected, stations are reachable and doors block trans
     assert.equal(clearDeckLine(a,b,[d.id]),false,d.label);
     assert.equal(walkable(d.x,d.y,false,[d.id]),false);
   }
+});
+
+test('the Electrical distributor and vent have separate interaction zones',()=>{
+  const distributor=tasks.find(task=>task.id==='calibrate');
+  const vent=tasks.find(task=>task.id==='clean-electrical');
+  assert.ok(dist(distributor.stops[0],vent.stops[0])>taskRange(distributor.id)+taskRange(vent.id));
 });
 
 for(const t of tasks)test('server validates '+t.id,()=>{

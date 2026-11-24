@@ -32,9 +32,10 @@ Create a room and press **START** while alone. After the countdown and role reve
 npm test
 npm run build
 CHROMIUM_PATH=/usr/bin/chromium npm run test:browser
+CHROMIUM_PATH=/usr/bin/chromium npm run test:instruments
 ```
 
-The server tests cover room isolation, role secrecy, authoritative actions, and puzzle rules. The browser scenario uses four independent multiplayer contexts and a separate solo context against the built client and relay. It writes screenshots under `test-results/screenshots` by default. Set `FAYEZ_SCREENSHOTS` to choose a different location. Use an installed Chromium executable or install Playwright Chromium and omit `CHROMIUM_PATH`. [PowerShell commands](docs/PC_HANDOFF.md#tests-and-release-verification)
+The server tests cover room isolation, role secrecy, authoritative actions, and puzzle rules. The browser scenario uses four independent multiplayer contexts and a separate solo context against the built client and relay. The instrument check also drives each browser task control against its server validator. Screenshots go to `test-results/screenshots` and `test-results/instruments` by default. Set `FAYEZ_SCREENSHOTS` to choose a different location. Use an installed Chromium executable or install Playwright Chromium and omit `CHROMIUM_PATH`. [PowerShell commands](docs/PC_HANDOFF.md#tests-and-release-verification)
 
 ## Deploy
 
