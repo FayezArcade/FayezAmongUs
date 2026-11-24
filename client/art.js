@@ -545,8 +545,8 @@ function sight(s){
 export function renderer(canvas){
   const ctx=canvas.getContext('2d'), scenes=[deckArtwork(),buildScene(true)], tracks=new Map();
   const gateProgress=new Float32Array(doors.length);
-  let camera=null,phase='',visibleKey='',visibility=null,lastFrame=0;
-  return (s,t)=>{
+  let phase='',visibleKey='',visibility=null,lastFrame=0,fogKey='',fog;
+  return (s,t,predicted)=>{
     const elapsed=Math.min(50,t-lastFrame);
     lastFrame=t;
     const w=innerWidth,h=innerHeight,dpr=Math.min(1.75,devicePixelRatio||1);
@@ -571,12 +571,11 @@ export function renderer(canvas){
       return;
     }
     const zoom=inLobby?Math.max(.22,Math.min((w-22)/810,(h-150)/605,1.18)):Math.min(Math.max(w/1000,.79),1.43);
-    const target=inLobby?{x:450,y:309}:s.self;
-    if(phase!==s.phase||!camera){
-      camera={x:target.x,y:target.y};tracks.clear();phase=s.phase;
+    const camera=inLobby?{x:450,y:309}:predicted||s.self;
+    if(phase!==s.phase){
+      tracks.clear();phase=s.phase;
       for(const d of doors)gateProgress[d.id]=Number(s.doors.includes(d.id));
     }
-    camera.x+=(target.x-camera.x)*.19;camera.y+=(target.y-camera.y)*.19;
     const center={x:w/2,y:inLobby?h/2-36:h/2};
     ctx.save();ctx.translate(center.x,center.y);ctx.scale(zoom,zoom);ctx.translate(-camera.x,-camera.y);
     ctx.drawImage(scenes[inLobby?1:0],0,0);
@@ -614,10 +613,17 @@ export function renderer(canvas){
       }
       if(s.tactical.track)circle(ctx,s.tactical.track.x,s.tactical.track.y,12,'#acd59b90','#38593b',2);
     }
-    for(const p of [...s.positions].sort((a,b)=>a.y-b.y)){
+    const positions=s.positions.map(p=>predicted&&p.id===s.self.id?{...p,x:predicted.x,y:predicted.y,moving:predicted.moving,direction:predicted.direction,facing:predicted.facing}:p);
+    const mix=1-Math.exp(-elapsed/45);
+    for(const p of positions.sort((a,b)=>a.y-b.y)){
+      if(p.id===s.self.id){
+        if(p.scanning)circle(ctx,p.x,p.y,16+Math.sin(t/95)*3,'#9ff1b268','#b7fbbf',2);
+        astronaut(ctx,p,t,playerScale);
+        continue;
+      }
       let q=tracks.get(p.id);
       if(!q||Math.hypot(p.x-q.x,p.y-q.y)>155){q={x:p.x,y:p.y,seenAt:t};tracks.set(p.id,q);}
-      q.x+=(p.x-q.x)*.31;q.y+=(p.y-q.y)*.31;
+      q.x+=(p.x-q.x)*mix;q.y+=(p.y-q.y)*mix;
       const arrival=s.phase==='play'?Math.min(1,(t-q.seenAt)/170):1;
       ctx.save();ctx.globalAlpha=arrival;
       if(p.scanning)circle(ctx,q.x,q.y,16+Math.sin(t/95)*3,'#9ff1b268','#b7fbbf',2);
@@ -626,17 +632,24 @@ export function renderer(canvas){
     }
     if(!inLobby&&s.phase==='play'){
       const key=[s.self.x,s.self.y,s.self.alive,s.vision,s.doors.join(',')].join('/');
-      if(key!==visibleKey){visibility=sight(s);visibleKey=key;}
-      ctx.beginPath();ctx.rect(camera.x-w/zoom,camera.y-h/zoom,w/zoom*2,h/zoom*2);
-      ctx.moveTo(...visibility[0]);for(const v of visibility.slice(1))ctx.lineTo(...v);ctx.closePath();
-      ctx.fillStyle='#0a1422ac';ctx.fill('evenodd');
+      if(key!==visibleKey){
+        const points=sight(s);
+        visibility=new Path2D();
+        visibility.rect(-4000,-4000,9365,8900);
+        visibility.moveTo(...points[0]);for(const v of points.slice(1))visibility.lineTo(...v);visibility.closePath();
+        visibleKey=key;
+      }
+      ctx.fillStyle='#0a1422ac';ctx.fill(visibility,'evenodd');
     }
     ctx.restore();
     if(!inLobby&&s.phase==='play'){
-      const px=(s.self.x-camera.x)*zoom+center.x,py=(s.self.y-camera.y)*zoom+center.y;
       const radius=Math.max(44,s.vision*zoom);
-      const fog=ctx.createRadialGradient(px,py,radius*.44,px,py,radius*1.25);
-      fog.addColorStop(0,'#0c1c2a00');fog.addColorStop(1,'#0b162c9c');
+      const key=[w,h,dpr,radius].join('/');
+      if(key!==fogKey){
+        fog=ctx.createRadialGradient(center.x,center.y,radius*.44,center.x,center.y,radius*1.25);
+        fog.addColorStop(0,'#0c1c2a00');fog.addColorStop(1,'#0b162c9c');
+        fogKey=key;
+      }
       ctx.fillStyle=fog;ctx.fillRect(0,0,w,h);
     }
   };

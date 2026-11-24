@@ -1,6 +1,7 @@
 import {randomBytes,randomInt} from 'node:crypto';
 import {colors,hats,rooms,deckRevision,deck,playerRadius,doors,vents,ventDestinations,tasks,taskRange,repairs,dist,walkable,clearDeckLine as hasLine,spawn,terminal,meetingPoint,emergencyRange,contains} from '../shared/deck.js';
 import {special,defaultRoles,signals} from '../shared/roles.js';
+import {advanceMovement} from '../shared/movement.js';
 import {puzzle,publicPuzzle,stepPuzzle,randomOrder} from './puzzles.js';
 
 const fail = message => {throw new Error(message);};
@@ -40,6 +41,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
   }
   function bind(socket,r,p) {
     p.socket=socket.id;p.disconnected=null;bound.set(socket.id,{r,p});
+    p.moveSeq=p.appliedMoveSeq=null;
     return {code:r.code,id:p.id,token:p.token,deck:deckRevision};
   }
   function add(socket,r,name) {
@@ -404,6 +406,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       self:{id:p.id,...point(p),color:p.color,hat:p.hat,showName:p.showName,alive:p.alive,team:p.team,role:p.role,ghost:p.ghost,
         killAt:p.killAt,abilityAt:p.abilityAt,sabotageAt:r.sabotageAt,effect:e?.id||null,effectUntil:e?.until,battery:p.battery,ventIndex:p.ventIndex,
         emergencies:p.emergencies,meetingAt:r.meetingAt,used:p.used,signal:p.signal,assignments:p.assignments,
+        moveSeq:p.appliedMoveSeq,moveAge:t-p.moveSince,
         allies:p.team==='impostor'?r.players.filter(q=>q.team==='impostor').map(q=>q.id):[]},
       bodies:r.bodies.filter(b=>dist(p,b)<vision&&(!p.alive||hasLine(p,b,blocked))).map(({expires,created,room,...b})=>({...b,decay:expires?Math.min(3,Math.floor((t-created)/(expires-created)*4)):0})),
       vision,doors:blocked,sabotage,alerts:r.alerts,taskEffects,progress:progress(r),puzzle:publicPuzzle(p.opened,t),tactical,
@@ -457,10 +460,12 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     }));
     socket.on('move',req=>{
       const t=limit(), s=bound.get(socket.id);
-      if(!s||++moves>45||!['lobby','play'].includes(s.r.phase))return;
+      if(!s||!['lobby','play'].includes(s.r.phase))return;
       const x=req?.x,y=req?.y;
       if(!Number.isFinite(x)||!Number.isFinite(y))return;
+      if(++moves>45&&(x||y))return;
       const length=Math.max(1,Math.hypot(x,y));s.p.input={x:x/length,y:y/length};s.p.inputAt=t;
+      s.p.moveSeq=Number.isSafeInteger(req.seq)?req.seq:null;
     });
     socket.on('command',(req,ack)=>reply(ack,()=>{
       const t=limit(), s=bound.get(socket.id);
@@ -474,7 +479,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
   const interval=setInterval(()=>{
     const t=now(), dt=Math.min(.07,Math.max(0,(t-last)/1000));last=t;
     for(const [code,r] of roomsByCode) {
-      const lobby=r.phase==='lobby';
+      const lobby=r.phase==='lobby',blocked=Object.keys(r.doors).map(Number);
       for(const p of r.players) {
         if(!p.socket&&p.disconnected!==null&&t-p.disconnected>45000){
           if(lobby)continue;
@@ -484,15 +489,8 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         if(p.signal&&t>=p.signal.until)p.signal=null;
         p.moving=false;
         if(p.socket&&(r.phase==='play'||lobby)&&t-(p.inputAt||0)<270&&!p.opened&&(lobby||p.ventIndex===null)){
-          const {x,y}=p.input, speed=r.settings.speed*(p.alive?1:1.28), blocked=Object.keys(r.doors).map(Number);
-          const test=(x,y)=>p.alive||lobby?walkable(x,y,lobby,blocked):x>18&&x<1340&&y>18&&y<900;
-          const nx=p.x+x*speed*dt,ny=p.y+y*speed*dt;
-          const movedX=x&&test(nx,p.y);
-          if(movedX){p.x=nx;p.facing=Math.sign(x);p.moving=true;}
-          const movedY=y&&test(p.x,ny);
-          if(movedY){p.y=ny;p.moving=true;}
-          if(movedX&&(!movedY||Math.abs(x)>=Math.abs(y)))p.direction=x<0?'left':'right';
-          else if(movedY)p.direction=y<0?'up':'down';
+          if(p.appliedMoveSeq!==p.moveSeq){p.appliedMoveSeq=p.moveSeq;p.moveSince=t-dt*1000;}
+          advanceMovement(p,p.input,dt,r.settings.speed*(p.alive?1:1.28),lobby,blocked);
         }
         if(r.phase==='play'&&active(p)){
           const name=roomName(p);

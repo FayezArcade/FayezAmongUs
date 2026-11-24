@@ -3,6 +3,7 @@ import {colors,suitPalette,hats,rooms,deckRevision,deck,doors,vents,ventDestinat
 import {special} from '../shared/roles.js';
 import {astronaut,renderer,drawMap,drawDeckOverview,suitPortrait} from './art.js';
 import {taskPanel} from './tasks.js';
+import {movement} from './movement.js';
 import './style.css';
 import './flight.css';
 
@@ -36,6 +37,24 @@ const promptButton=action=>action?btn('<kbd>SPACE</kbd> '+escape(action.label),'
 
 let state=null,session=null,joining=false,entry=null,modal=null,phase='',skew=0,noticeTimer,wasReady=false,uiKey='',audio;
 const held=new Set(), touch=new Set(), muted=new Set();
+const directions={arrowup:'up',w:'up',arrowdown:'down',s:'down',arrowleft:'left',a:'left',arrowright:'right',d:'right'};
+const motion=movement((input,repeat)=>(repeat?socket.volatile:socket).emit('move',input));
+let pendingInteraction=null;
+function syncMovement(at=performance.now()){
+  if(!session||!state||!socket.connected)return false;
+  const allowed=(!modal||modal.kind==='map')&&
+    (state.phase==='lobby'||(state.phase==='play'&&state.self.ventIndex===null&&!state.puzzle));
+  if(allowed&&(held.size||touch.size)){
+    const dirs=new Set([...held].map(key=>directions[key]));
+    for(const direction of touch)dirs.add(direction);
+    motion.sync(Number(dirs.has('right'))-Number(dirs.has('left')),Number(dirs.has('down'))-Number(dirs.has('up')),at);
+  }else motion.sync(0,0,at);
+  return true;
+}
+function clearMovement(){
+  held.clear();touch.clear();pendingInteraction=null;
+  syncMovement();
+}
 const nickname=()=>localStorage.getItem('fayez-name')||'';
 const now=()=>Date.now()+skew;
 function tone(kind='tap'){
@@ -111,19 +130,32 @@ socket.on('connect',async()=>{
   if(reply.ok&&reply.deck===deckRevision){notice(wasReady?'Flight connection restored.':'');wasReady=true;}
   else if(socket.connected){session=null;state=null;phase='';sessionStorage.removeItem('fayez-session');closeModal();home();notice(reply.error||'The relay is updating to this deck version. Try again shortly.');}
 });
-socket.on('disconnect',()=>{if(session)notice('Relay disconnected. Reconnecting…');});
+socket.on('disconnect',()=>{
+  clearMovement();motion.reset();
+  if(session)notice('Relay disconnected. Reconnecting…');
+});
 socket.on('state',s=>{
   if(!session||s.self.id!==session.id)return;
   skew=s.now-Date.now();const old=state;state=s;wasReady=true;
   if(phase!==s.phase){
-    phase=s.phase;uiKey='';selectedVote=null;meetingTab='ballot';chatSeen=0;closeModal(false);held.clear();touch.clear();notice('');
+    phase=s.phase;uiKey='';selectedVote=null;meetingTab='ballot';chatSeen=0;closeModal(false);clearMovement();notice('');
     tone(({lobby:'ok',reveal:'launch',meeting:'alarm',verdict:'vote',result:'ok'})[phase]||'tap');
   }
   if(old?.phase==='countdown'&&s.phase==='lobby')notice('Launch canceled because a player disconnected.');
   if(old?.sabotage?.kind!==s.sabotage?.kind&&s.sabotage){tone('alarm');if(s.sabotage.kind==='comms'&&modal?.kind==='tasks')missionList();}
   if(old?.self.alive&&!s.self.alive)notice(s.self.ghost?'Ghost role: '+special[s.self.ghost].name:'You are now a ghost.');
   if(s.self.signal&&s.self.signal.text!==old?.self.signal?.text)notice(s.self.signal.text);
+  motion.receive(s,performance.now());
   update();
+  if(pendingInteraction){
+    const action=contextAction();
+    if(modal){pendingInteraction=null;}
+    else if(performance.now()>pendingInteraction.until){pendingInteraction=null;notice('Approach a marked station.');}
+    else if(sameAction(action,pendingInteraction.action)){
+      pendingInteraction=null;
+      void performInteraction(action);
+    }
+  }
 });
 function closeModal(cancel=true) {
   if(cancel&&modal?.kind==='task')void command('taskClose');
@@ -159,8 +191,8 @@ function hud(){
     <div class="alert" id="emergency" hidden></div>
   <footer class="controls"><div class="controls-hint"><span>WASD / ↑↓←→</span> Move <span>SPACE</span> Use</div>${inLobby?'':`<div class="actions">${me.team==='impostor'&&me.alive?btn('Eliminate','strike','danger','id="strike-action"'):''}${me.team==='impostor'?btn('Sabotage','sabotage','danger'):''}${me.role||me.ghost?btn('Ability','ability'):''}${s.solo?btn('Test controls','practice','outline'):''}</div>`}</footer><div class="touch" aria-label="Movement controls">${[['up','↑'],['left','←'],['down','↓'],['right','→']].map(([d,label])=>`<button type="button" data-move="${d}" aria-label="Move ${d}">${label}</button>`).join('')}</div><div class="prompt" id="prompt"></div></main>`;
 }
-function contextAction(){
-  const s=state,p=s.self;
+function contextAction(p=state.self){
+  const s=state;
   if(s.phase==='lobby')return dist(p,terminal)<76?{label:'Open suit locker',kind:'suit'}:null;
   if(s.phase!=='play')return null;
   if(Number.isInteger(p.ventIndex))return {label:'Open hatch controls',kind:'vent'};
@@ -199,7 +231,7 @@ function update(){
     }
     markup('lobby-settings',`<dl><div><dt>Map</dt><dd>Meridian</dd></div><div><dt>Infiltrators</dt><dd>${settings.impostors}</dd></div><div><dt>Discussion</dt><dd>${settings.discussion}s</dd></div><div><dt>Voting</dt><dd>${settings.voting}s</dd></div><div><dt>Tasks</dt><dd>${settings.commonTasks} / ${settings.shortTasks} / ${settings.longTasks}</dd></div></dl>`);
     markup('side-info',s.roster.map(q=>`<div>${tag(q.color)}${escape(q.name)}${q.id===s.host?' <span>CAPTAIN</span>':''}${!q.online?' <span>OFFLINE</span>':''}</div>`).join(''));
-    markup('prompt',promptButton(contextAction()));
+    markup('prompt',promptButton(contextAction(motion.position()||p)));
   }
   if(s.phase==='countdown')document.querySelector('#countdown-number').textContent=Math.max(1,Math.ceil((s.until-now())/1000));
   if(s.phase==='play'){
@@ -217,7 +249,7 @@ function update(){
     if(strike){strike.disabled=now()<p.killAt;strike.textContent=strike.disabled?'Eliminate '+clock(p.killAt,now())+'s':'Eliminate [Q]';}
     const danger=document.querySelector('#emergency');danger.hidden=!s.sabotage;
     if(s.sabotage)danger.textContent=s.sabotage.kind.toUpperCase()+' FAILURE'+(s.sabotage.until?' · '+clock(s.sabotage.until,now())+'s':' · Find a repair station');
-    markup('prompt',promptButton(contextAction()));
+    markup('prompt',promptButton(contextAction(motion.position()||p)));
   }
   if(s.phase==='meeting'&&!intro){refreshMeeting();refreshChat();}
   if(modal?.kind==='suit'&&dist(p,terminal)>=76)closeModal(false);
@@ -373,9 +405,20 @@ function abilityPanel(){
   }
   panel('ability',role.name,body,{role:id});
 }
-async function interact(){
+const sameAction=(a,b)=>a?.kind===b.kind&&a.label===b.label&&
+  (typeof b.data==='object'?a.data?.id===b.data?.id:a.data===b.data);
+function interact(){
+  pendingInteraction=null;
   const action=contextAction();
-  if(!action){notice('Approach a marked station.');return;}
+  const predicted=!modal&&motion.position()?contextAction(motion.position()):null;
+  if(predicted&&!sameAction(action,predicted)){
+    pendingInteraction={action:predicted,until:performance.now()+300};
+    return;
+  }
+  if(action)return performInteraction(action);
+  notice('Approach a marked station.');
+}
+async function performInteraction(action){
   if(action.kind==='suit'){suitPanel();return;}
   if(action.kind==='repair'){repairPanel();return;}
   if(action.kind==='task'){
@@ -542,12 +585,11 @@ document.addEventListener('submit',async e=>{
     if((await command('repair',{index:modal.station,a})).ok){closeModal(false);notice('Repair input accepted.');}
   }
 });
-const directions={arrowup:'up',w:'up',arrowdown:'down',s:'down',arrowleft:'left',a:'left',arrowright:'right',d:'right'};
 addEventListener('keydown',e=>{
   if(e.key==='Escape'&&modal){closeModal();return;}
   if(!state||e.target.closest?.('input,textarea,select,[contenteditable]')||e.ctrlKey||e.metaKey||e.altKey)return;
   const k=e.key.toLowerCase();
-  if(directions[k]&&(!modal||modal.kind==='map')){held.add(k);e.preventDefault();}
+  if(directions[k]&&(!modal||modal.kind==='map')){held.add(k);e.preventDefault();if(!e.repeat)syncMovement();}
   if(k===' '&&!modal&&['play','lobby'].includes(state.phase)&&!e.target.closest?.('button')){
     e.preventDefault();if(!e.repeat)void interact();return;
   }
@@ -559,21 +601,19 @@ addEventListener('keydown',e=>{
   if(!modal&&k==='q'&&state.phase==='play'&&state.self.team==='impostor')void click({dataset:{do:'strike'}});
   if(k==='m'&&state.phase==='play'){if(modal?.kind==='map')closeModal();else if(!modal)void click({dataset:{do:'map'}});}
 });
-addEventListener('keyup',e=>held.delete(e.key.toLowerCase()));
-addEventListener('blur',()=>{held.clear();touch.clear();});
+addEventListener('keyup',e=>{if(held.delete(e.key.toLowerCase()))syncMovement();});
+addEventListener('blur',clearMovement);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)clearMovement();});
 document.addEventListener('pointerdown',e=>{
   const b=e.target.closest('[data-move]');if(!b)return;
-  e.preventDefault();b.setPointerCapture(e.pointerId);touch.add(b.dataset.move);
+  e.preventDefault();b.setPointerCapture(e.pointerId);touch.add(b.dataset.move);syncMovement();
 });
-for(const event of ['pointerup','pointercancel','lostpointercapture'])document.addEventListener(event,e=>{const move=e.target.dataset?.move;if(move)touch.delete(move);});
-setInterval(()=>{
-  if(!session||!state||!socket.connected)return;
-  const dirs=new Set([...held].map(k=>directions[k]).concat([...touch]));
-  const can=(!modal||modal.kind==='map')&&['lobby','play'].includes(state.phase);
-  const x=can?Number(dirs.has('right'))-Number(dirs.has('left')):0,y=can?Number(dirs.has('down'))-Number(dirs.has('up')):0;
-  socket.volatile.emit('move',{x,y});
-},45);
-function frame(t){render(state,t);requestAnimationFrame(frame);}
+for(const event of ['pointerup','pointercancel','lostpointercapture'])document.addEventListener(event,e=>{if(touch.delete(e.target.dataset?.move))syncMovement();});
+function frame(t){
+  const predicted=syncMovement(t)?motion.draw(t):null;
+  render(state,t,predicted);
+  requestAnimationFrame(frame);
+}
 home();requestAnimationFrame(frame);
 try{session=JSON.parse(sessionStorage.getItem('fayez-session'));}catch{}
 if(session)socket.connect();
