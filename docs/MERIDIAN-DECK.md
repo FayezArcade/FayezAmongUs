@@ -1,32 +1,40 @@
-# Meridian deck and meeting overhaul
+# Meridian deck overhaul
 
-The supplied overhead reference informed the placement of the central Cafeteria, western engineering wing, bottom cargo spine and eastern navigation wing. Meridian uses its own room cuts, offset entrances, connecting routes and an upper Weapons–Navigation bypass. The original metal, machinery and furniture art is rendered from its own deck geometry. The physical view, blue schematic, wall visibility, closed bulkheads and room routing share world coordinates.
+Meridian is Fayez Crew’s original ship. The supplied Skeld plan informed the broad engineering, cargo, and navigation routes. The 14 room footprints, 22 room thresholds, and 13 sabotage shutters share world coordinates with movement, the physical view and the blue map. [The Skeld reference map][skeld]
 
-The supplied task guide was cross-checked against public gameplay references. Data downloads begin in Cafeteria, Electrical, Weapons, Navigation or Communications and finish at Admin. Divert Power begins in Electrical and finishes at the named receiving panel. Wiring visits Electrical, Storage and Cafeteria in that order on Meridian. Waste routes end in Storage, and fuel visits Storage between engine stations. Yellow markers follow each player's unfinished stage. A completed stage advances the marker, and the last stage removes it and credits the shared bar. [Illustrated task walkthrough](https://www.bluestacks.com/blog/game-guides/among-us/au-skeld-task-guide-en.html) · [Classic task routes](https://steamcommunity.com/sharedfiles/filedetails/?id=2310600256)
+- The western Cafeteria hall connects Upper Engine and a terminal MedBay spur. The north–south engine spine joins the two engines, with Reactor and Security opposite each other at its midpoint. Electrical is a spur off the Lower Engine–Storage hall.
+- The central Cafeteria trunk reaches both the Admin spur and Storage. The south hall connects Storage to Shields and branches into Communications. Weapons opens to the eastern trunk, with O2 as a side room and Navigation and Shields reached from the lower junction.
+- Threshold plates are always passable. The shutters have tracks and lights when open. The server rejects a closure when a living suit obstructs it, then broadcasts successful closures and auto-reopens them after 9.5 seconds. Walls and closed shutters are used by movement and line-of-sight validation.
+- The blue map uses the live room and corridor geometry. The player position and next unfinished task stages are shown. Closed shutters appear in red, and active repair stations use the same coordinates as the physical deck.
+- In flight, the task preview is at the top left, the shared progress bar is centered, and the top-right Map button also responds to M. Space uses the nearby valid interaction shown in the lower center. Chat and Ballot share a meeting panel and timer. The chat tab tracks unread messages and preserves drafts while players switch views.
 
-The server publishes the same meeting start, introduction end, discussion end and ballot end to every player. Emergency and report cut-ins use separate artwork. The tablet identifies the caller, reserves the megaphone for body reports, disables ballots during discussion and asks for confirmation before submitting. The default is 30 seconds for discussion and 60 for voting. Hosts can change both timers and choose whether voting ends once all eligible players submit. Anonymous ballots expose aggregate totals and the submitted state. Role confirmation follows the host setting. [Innersloth beginner guide](https://innersloth.zendesk.com/hc/en-us/articles/7794240573460-Beginner-s-Guide-to-Among-Us)
+[Task research and stage rules](SKELD_TASK_REFERENCE_AUDIT.md)
 
-Solo mode exposes the complete deck, all task variants, both meeting drills and the sabotage schematic. A solo meeting can skip or expire and resume. The crew and sabotage maps contain only the permissions and player information they need.
+## Character and environment scale
 
-## Scale and clean suits
+Approximate silhouette measurements exclude hats, names, benches, and wall trim. Source screenshots have different resolutions, so the comparisons use ratios rather than literal pixels. Fayez figures are world units at the same camera scale.
 
-These are approximate silhouette measurements. Hats, labels, table benches and wall thickness are excluded unless noted.
-
-| Comparison | Among Us screenshot estimate | Earlier Meridian | Updated Meridian |
+| Comparison | Among Us reference | Earlier Fayez Crew | Current Fayez Crew |
 | --- | --- | --- | --- |
-| Suit height / central tabletop width | About 65 / 270 in the supplied close-up and 39 / 125 in the MobyGames wide view, or 24–31% | 51 / 64, about 80% | 34 / 112, about 30% |
-| Suit width / open corridor width | About 26 / 103 in the Weapons passage, or 25% | 37 / 62, about 60% | 25 / 74, about 34% |
-| Suit width / usable door threshold | About 26 / 88–100, or 26–30% | 37 / 56, about 66% | 25 / 68, about 37% |
-| Suit height / Electrical room width | About 37 / 285, or 13% | 51 / 170, about 30% | 34 / 210, about 16% |
-| Suit height / nearby machinery | About 34 / 85 beside the reactor column, or about 40% | 51 / 66, about 77% | 34 / 66, about 52% |
+| Suit height / central Cafeteria table | 39 / 125 in the wide view, about 31% | 51 / 64, about 80% | 34 / 112, about 30% |
+| Suit height / satellite Cafeteria table | About 40 / 126, or 32% | 34 / 42–46, about 74–81% | 34 / 78–84, about 40–44% |
+| Suit width / Weapons corridor | 26 / 103, about 25% | 37 / 62, about 60% | 25 / 74, about 34% |
+| Suit width / marked doorway opening | 26 / 88–100, about 26–30% | 37 / 56, about 66% | 25 / 70, about 36% |
+| Suit height / Electrical room width | 37 / 285, about 13% | 51 / 170, about 30% | 34 / 210, about 16% |
+| Suit height / Electrical panel bank | 37 / about 190, about 19% | 51 / about 78, about 65% | 34 / 164, about 21% |
+| Suit height / Reactor machinery | 34 / 85 beside the reference column, about 40% | 51 / 66, about 77% | 34 / 78, about 44% |
 
-The play-deck and dropship suits now render at 67% of the old world size with a nine-unit collision radius. The camera changes modestly, with the maximum zoom moving from 1.62 to 1.52. The larger Cafeteria table and wider passages improve local scale even at the original camera framing. Nicknames retain legible screen size. The emergency reach follows the larger table. Speed and the distances for task use, vents, reports and strikes retain their world-unit values.
+Meridian keeps the clean, rounded suit silhouette, the 0.67 world drawing scale, a nine-unit movement radius, and a camera zoom cap of 1.52 from the earlier character correction. This pass grew the satellite tables, Reactor machinery, and Electrical wall cabinet bank. Nicknames remain screen-readable and the movement speeds and interaction distances retain the prior world units. Meridian’s doors and satellite tables have their own proportions.
 
-Front faces now use a continuous shaded bean body with no badge, chest panel or buttons. Boots, a blue visor, an offset backpack, walking poses, hats, ghost rendering and the 18-color palette remain. The independent close-up portraits stay enlarged for readability.
-
-| Gameplay reference | Updated game |
+| Authentic gameplay reference | Fayez Crew |
 | --- | --- |
-| ![Among Us Cafeteria with crewmates beside tables](https://cdn.mobygames.com/0a600cc6-c3a1-11ed-9226-02420a000121.webp) | ![Fayez Crew character beside the Cafeteria table](screenshots/meridian/table-after.png) |
-| ![Among Us characters in the Cafeteria-to-Weapons corridor](https://cdn.mobygames.com/68277b2a-ac20-11ed-a12e-02420a000130.webp) | ![Fayez Crew character inside the Weapons corridor](screenshots/meridian/corridor-after.png) |
+| ![Among Us Cafeteria and tables][cafeteria] | ![Meridian Cafeteria and tables](screenshots/passage-hud/scale-cafeteria.jpg) |
+| ![Among Us Weapons corridor][corridor] | ![Meridian Weapons corridor](screenshots/passage-hud/scale-corridor.jpg) |
 
-[Electrical screenshot](https://cdn.mobygames.com/65992b74-ac20-11ed-b444-02420a000134.webp) · [Reactor screenshot](https://cdn.mobygames.com/69cad43a-bf22-11ed-9c42-02420a000140.webp) · [Capture source](https://www.mobygames.com/game/149316/among-us/screenshots/) · [All updated game screenshots](screenshots/meridian/)
+[Electrical gameplay reference][electrical] · [Reactor gameplay reference][reactor] · [Screenshot gallery](screenshots/passage-hud/)
+
+[skeld]: https://among-us.fandom.com/wiki/The_Skeld
+[cafeteria]: https://cdn.mobygames.com/0a600cc6-c3a1-11ed-9226-02420a000121.webp
+[corridor]: https://cdn.mobygames.com/68277b2a-ac20-11ed-a12e-02420a000130.webp
+[electrical]: https://cdn.mobygames.com/65992b74-ac20-11ed-b444-02420a000134.webp
+[reactor]: https://cdn.mobygames.com/69cad43a-bf22-11ed-9c42-02420a000140.webp
