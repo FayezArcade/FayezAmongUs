@@ -54,12 +54,14 @@ function modalShell(kicker,title,body,classes=''){
   layer.innerHTML=`<div class="scrim"><section class="panel ${classes}" role="dialog" aria-modal="true" aria-label="${escape(title)}"><button type="button" class="close" data-do="close" aria-label="Close">×</button><div class="eyebrow">${kicker}</div><h2>${escape(title)}</h2>${body}</section></div>`;
 }
 function home() {
-  screen.innerHTML=`<main class="home"><div class="orbit"></div><div class="orbit-glow"></div><div class="orbit-shuttle" aria-hidden="true"><svg viewBox="0 0 170 61"><path d="M6 43 70 20 114 5 165 19 125 31 93 49 37 57Z" fill="#344c67" stroke="#86c6c8"/><path d="m43 46 38-33 33-8 27 9-32 9-37 23Z" fill="#627b8a"/><path d="M9 43 37 36 51 42 23 49Z" fill="#75ffe3"/><path d="m129 17 26 2-23 9Z" fill="#ffc486"/></svg></div><div class="flight-brand"><span class="crest" aria-hidden="true"><svg viewBox="0 0 80 80"><path d="M40 6 71 23v34L40 74 9 57V23Z" fill="none" stroke="#67f5dd" stroke-width="2"/><path d="m40 18 20 40-20-10-20 10Z" fill="#67f5dd"/><path d="M40 19v29" stroke="#10344a" stroke-width="3"/><path d="M5 40h13m44 0h13" stroke="#67f5dd" stroke-width="2"/></svg></span><h1>FAYEZ <em>CREW</em></h1><div class="home-buttons">${btn('CREATE ROOM','create','primary')}${btn('JOIN ROOM','join','outline')}</div></div></main>`;
+  screen.innerHTML=`<main class="home classic-menu"><div class="flight-brand"><span class="menu-emblem" aria-hidden="true">✧</span><h1>FAYEZ <em>CREW</em></h1><div class="home-buttons">${btn('CREATE ROOM','create','outline')}${btn('JOIN ROOM','join','outline')}</div></div></main>`;
 }
 function entryForm(kind){
   entry=kind;modal={kind:'entry'};
   modalShell('PRIVATE FLIGHT',kind==='create'?'Create room':'Join room',`<form id="entry-form"><label>Nickname<input name="name" required maxlength="18" value="${escape(nickname())}" autocomplete="nickname" placeholder="Your call sign"></label>${kind==='join'?'<label>Room code<input name="code" required minlength="6" maxlength="6" placeholder="ABC123" autocomplete="off" class="code-input"></label>':''}<button class="primary" type="submit">${kind==='create'?'Create room':'Join room'}</button><p id="entry-status" class="feedback" role="status"></p></form>`);
-  layer.querySelector('input').focus();
+  const input=layer.querySelector('input');
+  if(kind==='create'&&input.value.trim())input.form.requestSubmit();
+  else input.focus();
 }
 function awaitConnection(){
   if(socket.connected)return Promise.resolve(true);
@@ -99,6 +101,7 @@ socket.on('state',s=>{
     phase=s.phase;uiKey='';closeModal(false);held.clear();touch.clear();notice('');
     tone(({lobby:'ok',reveal:'launch',meeting:'alarm',verdict:'vote',result:'ok'})[phase]||'tap');
   }
+  if(old?.phase==='countdown'&&s.phase==='lobby')notice('Launch canceled because a player disconnected.');
   if(old?.sabotage?.kind!==s.sabotage?.kind&&s.sabotage){tone('alarm');if(s.sabotage.kind==='comms'&&modal?.kind==='tasks')missionList();}
   if(old?.self.alive&&!s.self.alive)notice(s.self.ghost?'Ghost role: '+special[s.self.ghost].name:'You are now a ghost.');
   if(s.self.signal&&s.self.signal.text!==old?.self.signal?.text)notice(s.self.signal.text);
@@ -116,11 +119,21 @@ function chatForm() {
 }
 function hud(){
   const s=state, me=s.self, inLobby=s.phase==='lobby', captain=s.host===me.id;
-  const status=inLobby?'Waiting shuttle':'Flight deck';
-  const roleText=inLobby?'PRIVATE FLIGHT':roleName(me).toUpperCase();
-  screen.innerHTML=`<main class="hud"><header class="topbar"><div><div class="wordmark">${brand}</div><div class="eyebrow">${status}</div></div><div class="flight-data">${inLobby?'<button type="button" class="room-code" data-do="copy" title="Copy room code"><small>ROOM CODE</small><strong id="room-code"></strong></button><div class="count"><small>ON BOARD</small><strong id="crew-count"></strong></div>':'<div class="bar"><small>SHIP RESTORATION <span id="task-count"></span></small><progress max="1" value="0" id="task-progress"></progress></div>'}</div><div class="tag">${roleText}</div></header>
-  <div class="side-info" id="side-info"></div><div class="alert" id="emergency" hidden></div>
-  <footer class="controls"><div class="controls-hint"><span>WASD / ↑↓←→</span> Move <span>E</span> Interact</div><div class="actions">${inLobby?`${btn('Intercom','chat')}${captain?btn('Settings','settings'):''}${captain?btn('Start flight','start','primary','id="start-flight"'):''}${btn('Leave','leave','quiet')}`:`${btn('Map','map')}${btn('Tasks','tasks')}${btn('Interact','interact','primary')}${me.team==='impostor'?btn('Sabotage','sabotage','danger'):''}${me.role||me.ghost?btn('Ability','ability'):''}`}</div></footer><div class="touch" aria-label="Movement controls">${[['up','↑'],['left','←'],['down','↓'],['right','→']].map(([d,label])=>`<button type="button" data-move="${d}" aria-label="Move ${d}">${label}</button>`).join('')}</div><div class="prompt" id="prompt"></div></main>`;
+  const roleText=s.solo?'SOLO TEST MODE':roleName(me).toUpperCase();
+  screen.innerHTML=`<main class="hud ${inLobby?'dropship-hud':''}">${inLobby?`
+    <aside class="lobby-summary"><h2>Flight settings</h2><div id="lobby-settings"></div><div class="side-info" id="side-info"></div></aside>
+    <div class="lobby-actions actions">${btn('Chat','chat','outline')}${captain?btn('Settings','settings','outline'):''}${btn('Leave','leave','quiet')}</div>
+    <div class="boarding">
+      ${captain?btn('START','start','start-launch','id="start-flight"'):''}
+      <p class="launch-hint" id="launch-hint"></p>
+      <div class="boarding-code">
+        <button type="button" class="room-code" data-do="copy" title="Copy room code"><small>ROOM CODE</small><strong id="room-code"></strong></button>
+        <button type="button" data-do="copy" class="outline copy-code">COPY CODE</button>
+        <div class="count"><small>PLAYER COUNT</small><strong id="crew-count"></strong></div>
+      </div>
+    </div>`:`<header class="topbar"><div class="wordmark">${brand}</div><div class="flight-data"><div class="bar"><small>SHIP RESTORATION <span id="task-count"></span></small><progress max="1" value="0" id="task-progress"></progress></div></div><div class="tag">${roleText}</div></header><div class="side-info" id="side-info"></div>`}
+    <div class="alert" id="emergency" hidden></div>
+  <footer class="controls"><div class="controls-hint"><span>WASD / ↑↓←→</span> Move <span>E</span> Interact</div>${inLobby?'':`<div class="actions">${btn('Map','map')}${btn('Tasks','tasks')}${btn('Interact','interact','primary')}${me.team==='impostor'?btn('Sabotage','sabotage','danger'):''}${me.role||me.ghost?btn('Ability','ability'):''}${s.solo?btn('Test controls','practice','outline'):''}</div>`}</footer><div class="touch" aria-label="Movement controls">${[['up','↑'],['left','←'],['down','↓'],['right','→']].map(([d,label])=>`<button type="button" data-move="${d}" aria-label="Move ${d}">${label}</button>`).join('')}</div><div class="prompt" id="prompt"></div></main>`;
 }
 function contextAction(){
   const s=state,p=s.self;
@@ -134,7 +147,7 @@ function contextAction(){
   const a=nearest(available,p,56);
   if(a&&s.sabotage?.kind!=='comms')return {label:tasks.find(t=>t.id===a.id).label,kind:'task',data:a.id};
   if(p.alive&&(p.team==='impostor'||p.effect==='engineer')&&vents.some(v=>dist(p,v)<48))return {label:'Use service hatch',kind:'vent'};
-  if(p.alive&&dist(p,meetingPoint)<74&&p.emergencies>0&&!s.sabotage&&now()>p.meetingAt)return {label:'Call emergency assembly',kind:'emergency'};
+  if(!s.solo&&p.alive&&dist(p,meetingPoint)<74&&p.emergencies>0&&!s.sabotage&&now()>p.meetingAt)return {label:'Call emergency assembly',kind:'emergency'};
   if(p.alive&&dist(p,rooms[4])<85&&s.sabotage?.kind!=='comms')return {label:'View command telemetry',kind:'monitor',data:'command'};
   if(p.alive&&dist(p,rooms[8])<85&&s.sabotage?.kind!=='comms')return {label:'View camera feeds',kind:'monitor',data:'security'};
   return null;
@@ -148,11 +161,18 @@ function update(){
     else cinematic();
   }
   if(s.phase==='lobby'){
-    document.querySelector('#room-code').textContent=s.code;document.querySelector('#crew-count').textContent=s.roster.filter(q=>q.online).length+' / 10';
-    const start=document.querySelector('#start-flight');if(start)start.disabled=s.roster.filter(q=>q.online).length<4;
+    const count=s.roster.filter(q=>q.online).length, solo=count===1&&s.roster.length===1, settings=s.settings;
+    document.querySelector('#room-code').textContent=s.code;document.querySelector('#crew-count').textContent=count+'/10';
+    const start=document.querySelector('#start-flight');
+    if(start){
+      start.disabled=!solo&&count<4;
+      document.querySelector('#launch-hint').textContent=solo?'Solo test available':count<4?'Waiting for at least 4 players':'';
+    }
+    markup('lobby-settings',`<dl><div><dt>Map</dt><dd>Meridian</dd></div><div><dt>Infiltrators</dt><dd>${settings.impostors}</dd></div><div><dt>Discussion</dt><dd>${settings.discussion}s</dd></div><div><dt>Voting</dt><dd>${settings.voting}s</dd></div><div><dt>Tasks</dt><dd>${settings.commonTasks} / ${settings.shortTasks} / ${settings.longTasks}</dd></div></dl>`);
     markup('side-info',s.roster.map(q=>`<div>${tag(q.color)}${escape(q.name)}${q.id===s.host?' <span>CAPTAIN</span>':''}${!q.online?' <span>OFFLINE</span>':''}</div>`).join(''));
     markup('prompt',contextAction()?btn('<kbd>E</kbd> Open suit locker','interact'):'');
   }
+  if(s.phase==='countdown')document.querySelector('#countdown-number').textContent=Math.max(1,Math.ceil((s.until-now())/1000));
   if(s.phase==='play'){
     const progress=document.querySelector('#task-progress');progress.value=s.progress.total?s.progress.done/s.progress.total:0;
     document.querySelector('#task-count').textContent=s.progress.done+' / '+s.progress.total;
@@ -189,9 +209,11 @@ function cinemaSuit(canvas,p){
 }
 function cinematic(){
   const s=state,p=s.self;
-  if(s.phase==='reveal'){
+  if(s.phase==='countdown'){
+    screen.innerHTML=`<main class="launch-countdown"><div>${s.solo?'SOLO TEST MODE':'PRIVATE FLIGHT'}</div><h1 id="countdown-number"></h1><p>Launching</p></main>`;
+  }else if(s.phase==='reveal'){
     const role=p.role&&special[p.role];
-    screen.innerHTML=`<main class="cinema reveal ${p.team==='impostor'?'red':''}"><div class="eyebrow">PRIVATE ROLE · FLIGHT ${s.round}</div><canvas width="220" height="145"></canvas><h1>${escape(roleName(p))}</h1><p>${escape(role?.description||(p.team==='impostor'?'Disrupt the ship. Blend in with the crew.':'Restore the ship. Watch your crewmates.'))}</p>${p.allies.length>1?'<p class="muted">Allies · '+s.roster.filter(q=>q.id!==p.id&&p.allies.includes(q.id)).map(q=>escape(q.name)).join(', ')+'</p>':''}</main>`;
+    screen.innerHTML=`<main class="cinema reveal ${p.team==='impostor'?'red':''}"><div class="eyebrow">${s.solo?'SOLO TEST MODE':'PRIVATE ROLE'} · FLIGHT ${s.round}</div><canvas width="220" height="145"></canvas><h1>${escape(roleName(p))}</h1><p>${escape(role?.description||(p.team==='impostor'?'Disrupt the ship. Blend in with the crew.':'Restore the ship. Watch your crewmates.'))}</p>${p.allies.length>1?'<p class="muted">Allies · '+s.roster.filter(q=>q.id!==p.id&&p.allies.includes(q.id)).map(q=>escape(q.name)).join(', ')+'</p>':''}</main>`;
     cinemaSuit(screen.querySelector('canvas'),p);
   }else if(s.phase==='meeting'){
     screen.innerHTML=`<main class="meeting"><header><div class="eyebrow">SHIPWIDE INTERCOM</div><h1>${escape(s.meeting.subject)}</h1><p id="meeting-time"></p></header><div class="meeting-grid"><section><h2>Crew manifest</h2><div id="ballot"></div></section><section><h2>Open channel</h2>${chatForm()}</section></div></main>`;
@@ -328,6 +350,17 @@ async function click(b){
   if(action==='chat'){panel('chat','Shuttle intercom',chatForm());refreshChat();}
   if(action==='tasks')missionList();
   if(action==='ability')abilityPanel();
+  if(action==='practice'&&s.solo){
+    panel('practice','Solo test controls',`<p>Try ship systems and untargeted abilities. End the test whenever you’re ready.</p>
+      <label>Practice role<select id="practice-role">${[['','Crewmate'],['engineer','Engineer'],['scientist','Scientist'],['phantom','Phantom']].map(([value,name])=>`<option value="${value}" ${(p.role||'')===value?'selected':''}>${name}</option>`).join('')}</select></label>
+      <div class="targets">${btn('Apply role','practice-role','primary')}${btn('Sabotage','sabotage','danger')}${btn('Reset systems','practice-clear','outline')}${btn('Return to dropship','practice-return','outline')}</div>`);
+  }
+  if(action==='practice-role'){
+    const result=await command('practiceRole',{role:document.querySelector('#practice-role').value||null});
+    if(result.ok){closeModal(false);notice('Practice role selected.');}
+  }
+  if(action==='practice-clear'&&(await command('practiceClear')).ok){closeModal(false);notice('Ship systems restored.');}
+  if(action==='practice-return')await command('practiceReturn');
   if(action==='map'){
     panel('map','Meridian deck plan','<canvas class="map" width="950" height="626"></canvas><div class="map-legend"><span>● Your position</span><span>● Assigned station</span><span>● Active repairs</span></div>',{className:'map-panel'});
     drawMap(layer.querySelector('canvas'),state);
@@ -363,7 +396,17 @@ async function click(b){
   }
   if(action==='color')await suitChange(b.dataset.color);
   if(action==='copy'){
-    try{await navigator.clipboard.writeText(s.code);notice('Room code copied.');}catch{notice('Room code · '+s.code);}
+    try{
+      try{await navigator.clipboard.writeText(s.code);}
+      catch{
+        const input=document.createElement('textarea');
+        input.value=s.code;input.className='copy-buffer';
+        document.body.append(input);input.select();
+        try{if(!document.execCommand('copy'))throw Error('Clipboard unavailable');}
+        finally{input.remove();b.focus();}
+      }
+      notice('Room code copied.');
+    }catch{notice('Room code · '+s.code);}
   }
   if(action==='leave'){
     await command('leave');session=null;state=null;phase='';sessionStorage.removeItem('fayez-session');closeModal(false);home();

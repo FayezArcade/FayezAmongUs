@@ -16,7 +16,7 @@ export const rooms = [
   ['Lower Engine',660,800,'#f4a778','engine']
 ].map(([name,x,y,accent,prop]) => ({name,x,y,accent,prop,w:name==='Cafeteria'?238:200,h:name==='Cafeteria'?172:150,chamfer:prop==='table'?29:prop==='core'||prop==='helm'||prop==='shield'?24:14}));
 export const links = [[0,1],[0,2],[0,5],[1,4],[2,6],[3,4],[3,7],[3,8],[4,5],[4,9],[5,6],[5,10],[6,11],[7,12],[8,9],[8,12],[8,13],[9,10],[9,14],[10,11],[13,14]];
-export const lobby = [{name:'Docking Shuttle',x:450,y:300,w:820,h:500,accent:'#67f5dd',prop:'shuttle',chamfer:43}];
+export const lobby = [{name:'Docking Shuttle',x:450,y:310,w:520,h:438,accent:'#a8b5bc',prop:'shuttle',chamfer:58}];
 export const corridors = links.map(([a,b]) => {
   const p=rooms[a],q=rooms[b], horizontal=p.y===q.y;
   return {x:(p.x+q.x)/2,y:(p.y+q.y)/2,w:horizontal?Math.abs(p.x-q.x):66,h:horizontal?66:Math.abs(p.y-q.y),a,b,horizontal};
@@ -24,12 +24,14 @@ export const corridors = links.map(([a,b]) => {
 export const doors = corridors.map(({x,y,horizontal},id)=>({x,y,w:horizontal?18:66,h:horizontal?66:18,id}));
 export const ventRooms = [0,3,6,8,10,12,14];
 export const vents = ventRooms.map(i=>({x:rooms[i].x+65,y:rooms[i].y+43}));
-export const lobbySeats=[76,746].flatMap(x=>Array.from({length:5},(_,i)=>({x:x+34,y:165+i*58,w:68,h:41})));
-export const lobbyCrates=[{x:223,y:219,w:62,h:48},{x:254,y:252,w:54,h:43},{x:667,y:418,w:69,h:53},{x:637,y:448,w:48,h:43}];
-export const terminal = {x:560,y:232};
+export const lobbySeats=[-1,1].flatMap(side=>Array.from({length:5},(_,i)=>({
+  x:450+side*(205-i*28),y:225-i*15,w:29,h:35,angle:side*(.65-i*.05)
+})));
+export const lobbyCrates=[{x:365,y:248,w:51,h:42,laptop:true},{x:273,y:403,w:67,h:55},{x:592,y:361,w:76,h:58},{x:629,y:439,w:40,h:33}];
+export const terminal = {x:365,y:286};
 export const meetingPoint = {x:940,y:335};
 export const spawn = (i,inLobby) => {
-  if(inLobby)return {x:450+((i%5)-2)*63,y:315+Math.floor(i/5)*72};
+  if(inLobby)return {x:450+((i%5)-2)*44,y:373+Math.floor(i/5)*87};
   const angle=((i*3)%10)*Math.PI*2/10;
   return {x:meetingPoint.x+Math.sin(angle)*57,y:meetingPoint.y+Math.cos(angle)*52};
 };
@@ -40,7 +42,7 @@ export function contains(rect,x,y,margin=0){
 }
 export const walkable = (x,y,inLobby,blocked=[],radius=12) => [[-radius,0],[radius,0],[0,-radius],[0,radius]].every(([dx,dy]) =>
   (inLobby?lobby:[...rooms,...corridors]).some(r=>contains(r,x+dx,y+dy)) &&
-  (!inLobby||![...lobbySeats,...lobbyCrates].some(r=>contains(r,x+dx,y+dy))) &&
+  (!inLobby||(y+dy>=178+Math.max(0,Math.abs(x+dx-450)-72)*.32&&![...lobbySeats,...lobbyCrates].some(r=>contains(r,x+dx,y+dy)))) &&
   !blocked.some(id=>doors[id] && contains(doors[id],x+dx,y+dy)));
 export const dist = (a,b) => Math.hypot(a.x-b.x,a.y-b.y);
 export const tasks = [

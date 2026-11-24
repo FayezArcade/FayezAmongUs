@@ -1,6 +1,6 @@
 # Fayez Crew
 
-Fayez Crew is a private 4–10 player browser social-deduction game aboard the Meridian salvage ship. The captain starts the match from a walkable shuttle. The crew completes assignments and votes on incidents while hidden infiltrators sabotage systems and pick off the crew. Optional roles start disabled.
+Fayez Crew is a private 4–10 player browser social-deduction game aboard the Meridian salvage ship. The captain starts a group match or a solo test from a walkable dropship. The crew completes assignments and votes on incidents while hidden infiltrators sabotage systems and pick off the crew. Optional roles start disabled.
 
 ## Play locally
 
@@ -16,9 +16,13 @@ Open the URL Vite prints. The dev server runs the relay on the same origin. On a
 1. Select **CREATE ROOM**, enter your nickname and share the six-character code with friends.
 2. Friends select **JOIN ROOM**, enter their nicknames and enter that code.
 3. Move with **WASD** or **arrow keys**. Approach the GEAR terminal and use **E** to choose a unique color and equipment. Touch devices have a directional pad.
-4. Once four players are present, the captain can configure the lobby and start the flight.
+4. The captain can start a solo test with one player or a normal flight with four to ten connected players. Two and three players can share the lobby while waiting.
 5. **E** interacts with nearby stations, repairs, hatches, the emergency console and reportable incidents. **M** opens the deck plan. Infiltrators can use **Q** to attempt a nearby elimination.
 6. The captain can re-dock after the result. Share the same room code for the next flight.
+
+## Solo testing
+
+Create a room and press **START** while alone. After the countdown and role reveal, **Map** shows the same deck used for group matches. Every task station is available in solo mode. **Test controls** lets you select Engineer, Scientist, or Phantom to exercise untargeted abilities, trigger sabotage, clear hazards, and return to the same dropship. Finishing tasks or running out a sabotage timer keeps the test running.
 
 ## Verify
 
@@ -47,6 +51,7 @@ To serve a built client locally with the standalone relay, run `npm run build` a
 - [Research and role references](RESEARCH.md)
 - [Gameplay audit](docs/COMPLETE_GAMEPLAY_AUDIT.md)
 - [Flight manual and concept art](docs/VISUAL-DESIGN.md)
-- [Game screenshots](docs/screenshots/)
+- [Dropship update and screenshots](docs/DROPSHIP_UPDATE.md)
+- [Earlier match screenshots](docs/screenshots/)
 
 `client` contains the Vite UI and Canvas renderer. `server` owns the match and Socket.IO protocol. `shared` holds the deck data, puzzle stations and role definitions. All ship art, suits, UI and cues were made for this project.

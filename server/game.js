@@ -26,8 +26,8 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
   const roomsByCode=new Map();
   const bound=new Map();
   function reset(r) {
-    Object.assign(r,{phase:'lobby',players:r.players.filter(p=>p.socket),meeting:null,outcome:null,bodies:[],doors:{},sabotage:null,alerts:[],chat:[],ghostSlots:[]});
-    r.players.forEach((p,i)=>Object.assign(p,spawn(i,true),{alive:true,retired:false,team:null,role:null,ghost:null,assignments:[],opened:null,ventIndex:null,moving:false,input:{x:0,y:0}}));
+    Object.assign(r,{phase:'lobby',solo:false,until:null,launchCrew:null,players:r.players.filter(p=>p.socket),meeting:null,outcome:null,bodies:[],doors:{},sabotage:null,alerts:[],chat:[],ghostSlots:[]});
+    r.players.forEach((p,i)=>Object.assign(p,spawn(i,true),{alive:true,retired:false,team:null,role:null,ghost:null,assignments:[],opened:null,ventIndex:null,effect:null,shield:0,signal:null,notes:[],moving:false,input:{x:0,y:0}}));
     migrate(r);
   }
   function migrate(r) {
@@ -76,21 +76,31 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       return cfg.enabled?Array.from({length:cfg.max},()=>id).filter(()=>randomInt(100)<cfg.chance):[];
     }));
   }
+  function startCountdown(r,t) {
+    const count=r.players.filter(p=>p.socket).length;
+    const solo=count===1&&r.players.length===1;
+    valid(solo||count>=4,'Start alone for testing or invite at least four connected players.');
+    valid(solo||count>=r.settings.impostors*2+2,'This infiltrator count needs a larger crew.');
+    valid(solo||r.settings.commonTasks+r.settings.shortTasks+r.settings.longTasks>0,'Assign at least one maintenance task.');
+    Object.assign(r,{phase:'countdown',solo,until:t+3000,launchCrew:r.players.filter(p=>p.socket).map(p=>p.id)});
+    for(const p of r.players)p.input={x:0,y:0};
+  }
   function start(r,t) {
-    const count=r.players.filter(p=>p.socket).length, n=r.settings.impostors;
-    valid(r.settings.commonTasks+r.settings.shortTasks+r.settings.longTasks>0,'Assign at least one maintenance task.');
-    valid(count>=4,'At least 4 connected crew are required.');
-    valid(count>=n*2+2,'This infiltrator count needs a larger crew.');
+    if(!r.launchCrew.every(id=>r.players.some(p=>p.id===id&&p.socket))){
+      Object.assign(r,{phase:'lobby',solo:false,until:null,launchCrew:null});
+      return;
+    }
+    const n=r.solo?0:r.settings.impostors;
     r.players=r.players.filter(p=>p.socket);
-    Object.assign(r,{phase:'reveal',until:t+3400,round:(r.round||0)+1,meeting:null,bodies:[],doors:{},sabotage:null,alerts:[],chat:[],outcome:null,sabotageAt:t+10500,meetingAt:t+3400+r.settings.meetingCooldown*1000});
+    Object.assign(r,{phase:'reveal',until:t+3400,round:(r.round||0)+1,meeting:null,bodies:[],doors:{},sabotage:null,alerts:[],chat:[],outcome:null,sabotageAt:t+(r.solo?3400:10500),meetingAt:t+3400+r.settings.meetingCooldown*1000});
     const order=randomOrder(r.players), slots={impostor:rollSlots(r,'impostor'),crew:rollSlots(r,'crew')};
     r.ghostSlots=rollSlots(r,'ghost');
     const commons=randomOrder(tasks.filter(k=>k.kind==='common')).slice(0,r.settings.commonTasks);
     order.forEach((p,i)=>{
       const team=i<n?'impostor':'crew';
-      const first=team==='crew'?[...commons,...randomOrder(tasks.filter(k=>k.kind==='long')).slice(0,r.settings.longTasks),...randomOrder(tasks.filter(k=>k.kind==='short')).slice(0,r.settings.shortTasks)]:[];
-      const assignments=team==='crew'?first:[...commons,...randomOrder(tasks.filter(k=>k.kind==='long')).slice(0,r.settings.longTasks),...randomOrder(tasks.filter(k=>k.kind==='short')).slice(0,r.settings.shortTasks)];
-      Object.assign(p,spawn(i,false),{alive:true,retired:false,team,role:slots[team].shift()||null,ghost:null,opened:null,
+      // Practice exposes every station. Multiplayer continues to draw from the host's configured pools.
+      const assignments=r.solo?tasks:[...commons,...randomOrder(tasks.filter(k=>k.kind==='long')).slice(0,r.settings.longTasks),...randomOrder(tasks.filter(k=>k.kind==='short')).slice(0,r.settings.shortTasks)];
+      Object.assign(p,spawn(i,false),{alive:true,retired:false,team,role:r.solo?null:slots[team].shift()||null,ghost:null,opened:null,
         killAt:t+3400+r.settings.killCooldown*1000,abilityAt:t+3400,reported:false,emergencies:1,
         assignments:assignments.map(({id})=>({id,stage:0,done:false})),shield:0,effect:null,used:false,notes:[],seen:[],signal:null,signalHand:null,signalReroll:true,battery:true,trail:[],ventIndex:null,ventAt:0,roomStamp:null,input:{x:0,y:0}});
     });
@@ -104,7 +114,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     for(const p of r.players)p.opened=null;
   }
   function win(r) {
-    if(r.phase!=='play')return;
+    if(r.phase!=='play'||r.solo)return;
     const live=r.players.filter(active), impostors=live.filter(p=>p.team==='impostor').length, crew=live.length-impostors;
     const completed=progress(r);
     if(!impostors)result(r,'crew','All infiltrators were removed.');
@@ -201,12 +211,26 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     p.abilityAt=until+cfg.cooldown*1000;
   }
 
+  function practice(r,p){return r.solo&&r.phase==='play'&&p.id===r.host&&r.players.length===1;}
   function command(r,p,kind,req,t) {
     const blocked=Object.keys(r.doors).map(Number);
     const isHost=p.id===r.host;
     switch(kind) {
       case 'settings': valid(isHost&&r.phase==='lobby','Only the captain configures the lobby.');updateSettings(r,req);break;
-      case 'start': valid(isHost&&r.phase==='lobby','Only the captain starts the flight.');start(r,t);break;
+      case 'start': valid(isHost&&r.phase==='lobby','Only the captain starts the flight.');startCountdown(r,t);break;
+      case 'practiceRole': {
+        valid(practice(r,p),'Role practice is available only in a solo test.');
+        const role=req?.role;
+        valid([null,'engineer','scientist','phantom'].includes(role),'Choose an available practice role.');
+        valid(p.ventIndex===null,'Exit the service hatch first.');
+        Object.assign(p,{role,effect:null,abilityAt:t,battery:true});
+        break;
+      }
+      case 'practiceClear':
+        valid(practice(r,p),'System reset is available only in a solo test.');
+        Object.assign(r,{sabotage:null,doors:{},sabotageAt:t});break;
+      case 'practiceReturn':
+        valid(practice(r,p),'Only the solo tester can return to the dropship.');reset(r);break;
       case 'reset': valid(isHost&&r.phase==='result','Only the captain can re-dock.');reset(r);break;
       case 'suit': {
         valid(r.phase==='lobby'&&dist(p,terminal)<76,'Approach the gear terminal.');
@@ -263,7 +287,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         p.input={x:0,y:0};break;
       }
       case 'sabotage': {
-        valid(r.phase==='play'&&p.team==='impostor'&&t>=r.sabotageAt,'Sabotage is cooling down.');
+        valid(r.phase==='play'&&(p.team==='impostor'||practice(r,p))&&t>=r.sabotageAt,'Sabotage is cooling down.');
         const id=req?.kind;
         if(id==='doors') {
           valid(Number.isInteger(req.door)&&doors[req.door]&&!r.doors[req.door],'Choose an open bulkhead.');
@@ -291,7 +315,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         if(s.kind==='reactor'){
           s.fixed=s.fixed.filter(v=>t-v.at<5200&&v.index!==index);
           s.fixed.push({index,at:t,by:p.id});
-          if(s.fixed.length!==2||s.fixed[0].by===s.fixed[1].by)return {};
+          if(s.fixed.length!==2||(!r.solo&&s.fixed[0].by===s.fixed[1].by))return {};
         } else if(s.kind==='oxygen') {
           if(!s.fixed.some(v=>v.index===index))s.fixed.push({index,at:t});
           if(s.fixed.length!==2)return {};
@@ -304,7 +328,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         assembly(r,p,t,'Incident reported');break;
       }
       case 'emergency':
-        valid(r.phase==='play'&&p.alive&&p.ventIndex===null&&p.emergencies>0&&!r.sabotage&&t>=r.meetingAt&&dist(p,meetingPoint)<74,'Intercom is unavailable.');
+        valid(r.phase==='play'&&!r.solo&&p.alive&&p.ventIndex===null&&p.emergencies>0&&!r.sabotage&&t>=r.meetingAt&&dist(p,meetingPoint)<74,'Intercom is unavailable.');
         p.emergencies--;assembly(r,p,t,'Emergency assembly');break;
       case 'vote': {
         const to=req?.id, m=r.meeting;
@@ -334,7 +358,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     return {};
   }
   function snapshot(r,p,t) {
-    const playable=r.phase==='play', inLobby=r.phase==='lobby', blocked=Object.keys(r.doors).map(Number);
+    const playable=r.phase==='play', inLobby=['lobby','countdown'].includes(r.phase), blocked=Object.keys(r.doors).map(Number);
     const vision=p.alive?(p.team==='impostor'?r.settings.crewVision*1.3:r.sabotage?.kind==='lights'?82:r.settings.crewVision):520;
     const visible=(q)=>inLobby||q===p||q.ventIndex===null&&((!p.alive&&dist(p,q)<vision)||(active(q)&&q.effect?.id!=='phantom'&&dist(p,q)<vision&&hasLine(p,q,blocked)));
     const view=q=>{
@@ -356,7 +380,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     if(p.ghost==='influencer'){tactical.signals=p.signalHand;tactical.refresh=p.signalReroll;}
     const sabotage=s&&{kind:s.kind,until:s.until,fixed:s.fixed.map(f=>({index:f.index,at:f.at})),pattern:s.pattern,
       nearby:repairs[s.kind].flatMap((q,index)=>p.alive&&dist(p,q)<59&&hasLine(p,q,blocked)?[{index,code:s.code?.[index],dial:s.dial}]:[])};
-    return {code:r.code,phase:r.phase,round:r.round||0,host:r.host,now:t,until:r.until,roster,settings:r.settings,
+    return {code:r.code,phase:r.phase,solo:Boolean(r.solo),round:r.round||0,host:r.host,now:t,until:r.until,roster,settings:r.settings,
       positions:(playable||inLobby)?r.players.filter(q=>!q.retired&&visible(q)).map(view):[view(p)],
       self:{id:p.id,...point(p),color:p.color,hat:p.hat,showName:p.showName,alive:p.alive,team:p.team,role:p.role,ghost:p.ghost,
         killAt:p.killAt,abilityAt:p.abilityAt,sabotageAt:r.sabotageAt,effect:e?.id||null,effectUntil:e?.until,battery:p.battery,ventIndex:p.ventIndex,
@@ -458,8 +482,12 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       r.bodies=r.bodies.filter(b=>b.expires===null||b.expires>t);
       r.alerts=r.alerts.filter(a=>a.until>t);
       if(r.sabotage?.kind==='reactor')r.sabotage.fixed=r.sabotage.fixed.filter(v=>t-v.at<5200);
+      if(r.phase==='countdown'&&t>=r.until)start(r,t);
       if(r.phase==='reveal'&&t>=r.until){r.phase='play';win(r);}
-      if(r.phase==='play'&&r.sabotage?.until&&t>=r.sabotage.until)result(r,'impostor','The ship could not recover from the '+r.sabotage.kind+' emergency.');
+      if(r.phase==='play'&&r.sabotage?.until&&t>=r.sabotage.until){
+        if(r.solo){r.sabotage=null;r.sabotageAt=t;}
+        else result(r,'impostor','The ship could not recover from the '+r.sabotage.kind+' emergency.');
+      }
       if(r.phase==='play')win(r);
       if(r.phase==='meeting'&&(t>=r.meeting.end||t>=r.meeting.voteAt&&r.players.filter(p=>active(p)&&p.socket).every(p=>Object.hasOwn(r.meeting.votes,p.id))))tally(r,t);
       if(r.phase==='verdict'&&t>=r.until){
