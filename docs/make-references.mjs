@@ -1,0 +1,31 @@
+import fs from 'node:fs';
+import {rooms, corridors, colors} from '../shared/deck.js';
+const type = (x,y,content,size=19,color='#b6cadc',weight=600)=>`<text x="${x}" y="${y}" font-family="sans-serif" font-size="${size}" font-weight="${weight}" fill="${color}">${content}</text>`;
+const box=(x,y,w,h,fill='#132638',stroke='#355369',r=14)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}" stroke="${stroke}" stroke-width="2" rx="${r}"/>`;
+const ring=(x,y,r,fill,stroke='#496980')=>`<circle cx="${x}" cy="${y}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="2"/>`;
+function suit(x,y,c,pose=0,hat=0){
+  return `<g transform="translate(${x} ${y})"><ellipse cy="45" rx="34" ry="8" fill="#060d17" opacity=".7"/>${box(-24,23+pose,18,22,'#21384a','#070e1b',7)}${box(6,23-pose,18,22,'#21384a','#070e1b',7)}${box(-37,-16,15,40,'#405c71','#070e1b',7)}${box(22,-16,15,40,'#405c71','#070e1b',7)}${box(-28,-11,56,48,c,'#070e1b',17)}${ring(0,-24,31,c,'#070e1b')}${ring(0,-23,24,'url(#glass)','#082436')}<path d="M-15 -31 Q-7 -42 7 -38" stroke="#b6faff" fill="none" stroke-width="4" stroke-linecap="round"/>${box(-7,17,14,5,'#eafff8','none',2)}${hat?`<path d="M16 -50 L29 -68" stroke="#afc8db" stroke-width="4"/>${ring(30,-70,6,'#ffbf73')}`:''}</g>`;
+}
+const button=(x,y,w,label,primary=false)=>box(x,y,w,49,primary?'#67f5dd':'#102436',primary?'#67f5dd':'#497083',10)+type(x+18,y+32,label,17,primary?'#081922':'#def1f6',800);
+const panel=(x,y,w,h,label)=>box(x,y,w,h)+type(x+22,y+34,label,18,'#67f5dd',800);
+const star=Array.from({length:125},(_,i)=>ring((i*137+53)%1120,(i*163+77)%700,i%9===0?1.7:.8,i%9===0?'#95ddff':'#415b78','none')).join('');
+const ship=`<g transform="translate(856 244) rotate(-18)"><path d="M-140 40 L32 -24 L135 0 L32 28 L-60 76 Z" fill="#294659" stroke="#74c1d3" stroke-width="3"/><path d="M-80 44 L24 -46 L107 -12 L39 4 Z" fill="#3f6479"/><path d="M-60 45 L-112 50 L-145 64 L-62 64 Z" fill="#67f5dd"/><path d="M87 -9 L119 0 L68 10" fill="#ffbf73"/></g>`;
+const deck = `<g transform="translate(139 151) scale(.61)">`+corridors.map(c=>box(c.x-c.w/2,c.y-c.h/2,c.w,c.h,'#365267','#24394c',5)).join('')+rooms.map(r=>box(r.x-r.w/2,r.y-r.h/2,r.w,r.h,'#192e40',r.accent,18)+ring(r.x,r.y-15,23,'#283f54',r.accent)+type(r.x-r.w/2+15,r.y+43,r.name,20,r.accent)).join('')+'</g>';
+const swatches=Object.values(colors);
+const boards=[
+ ['01-menu','Flight access','Private-room entry',
+   `${ship}${type(171,270,'FAYEZ',88,'#ecffff',900)}${type(171,353,'CREW',92,'#67f5dd',900)}${button(178,405,292,'CREATE ROOM',true)}${button(178,468,292,'JOIN ROOM')}${panel(645,360,295,227,'JOIN PRIVATE ROOM')}${box(668,410,245,42,'#0a1524')}${type(685,437,'Nickname',16)}${box(668,462,245,42,'#0a1524')}${type(685,489,'Room code',16)}${button(668,520,245,'BOARD SHUTTLE',true)}`],
+ ['02-lobby','Docking shuttle','Waiting room and gear station',
+   `${box(64,149,680,480,'#23394d','#63839b',46)}${box(96,181,616,416,'url(#grid)','#0b1625',35)}${box(253,180,290,41,'#0b1623','#4e6a84')}${type(273,206,'DOCK 07    /    QMKYJP',17,'#b4dce9')}${[0,1,2,3,4].map(i=>box(119,249+i*53,53,42,'#32566c')+box(634,249+i*53,53,42,'#32566c')).join('')}${box(507,258,74,51,'#163945','#67f5dd')}${type(527,290,'GEAR',13,'#67f5dd')}${suit(246,361,swatches[0],4)}${suit(375,457,swatches[1])}${suit(505,405,swatches[2],-4,1)}${box(273,558,242,39,'#385266','#5d8194')}${panel(770,190,278,388,'SUIT LOCKER')}${suit(911,313,swatches[3],0,1)}${swatches.map((c,i)=>ring(814+i%4*63,414+Math.floor(i/4)*48,14,c)).join('')}`],
+ ['03-map','Meridian deck plan','One ship, three transit loops',deck],
+ ['04-suits','Pressure suits','Silhouette, stride and suit colors',
+   `${[0,7,-7,0].map((p,i)=>panel(73+i*248,176,225,241,['IDLE','LEFT STEP','RIGHT STEP','BEACON'][i])+suit(183+i*248,315,swatches[1],p,i===3)).join('')}${swatches.map((c,i)=>ring(102+i*82,513,20,c)).join('')}${type(74,590,'Circular helmet / tinted faceplate / twin shoulder tanks / hinged boots',21,'#bcd0df')}`],
+ ['05-tasks','Ship maintenance','Equipment panels and system alerts',
+   `${panel(75,173,463,442,'CABLE HARNESS')}${panel(575,173,463,442,'ATMOSPHERE ALERT')}${swatches.slice(0,4).map((c,i)=>`<path d="M144 ${274+i*72} C240 ${253+i*72},350 ${488-i*63},463 ${491-i*63}" fill="none" stroke="${c}" stroke-width="7"/>${ring(144,274+i*72,11,c)}${ring(463,491-i*63,11,c)}`).join('')}${type(608,294,'00:34',76,'#ff758b',900)}${type(612,345,'Restore pressure at both stations.',20)}${button(612,404,360,'ATMOS  /  STATION A',true)}${button(612,475,360,'COMMAND  /  STATION B')}`],
+ ['06-meetings','Intercom and airlock','Role, ballot and round result',
+   `${panel(70,174,403,424,'EMERGENCY ASSEMBLY')}${['Ari','Jun','Sol','Mina'].map((n,i)=>box(94,245+i*70,353,55,'#0e1f32')+ring(122,272+i*70,12,swatches[i])+type(147,280+i*70,n,17)).join('')}${panel(502,174,543,187,'PRIVATE ROLE CARD')}${suit(974,283,swatches[0],0,1)}${type(528,270,'INFILTRATOR',42,'#ff758b',900)}${panel(502,385,543,213,'MISSION OUTCOME')}${type(528,497,'CREW VICTORY',43,'#67f5dd',900)}${type(528,543,'All infiltrators have been removed.',19)}`]
+];
+for (const [file,title,sub,art] of boards) {
+ const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="700" viewBox="0 0 1120 700"><defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#080f1f"/><stop offset="1" stop-color="#152c40"/></linearGradient><linearGradient id="glass" x2="0" y2="1"><stop stop-color="#68aabf"/><stop offset=".72" stop-color="#123348"/></linearGradient><pattern id="grid" width="31" height="31" patternUnits="userSpaceOnUse"><rect width="31" height="31" fill="#192e41"/><path d="M0 0H31V31" fill="none" stroke="#2d475d"/></pattern></defs><rect width="1120" height="700" fill="url(#bg)"/>${star}${type(56,53,'FAYEZ CREW  /  DESIGN REFERENCE',15,'#67f5dd',800)}${type(56,102,title,40,'#eefaff',900)}${type(58,132,sub,17)}${art}</svg>`;
+ fs.writeFileSync(new URL('./references/'+file+'.svg',import.meta.url),svg);
+}
