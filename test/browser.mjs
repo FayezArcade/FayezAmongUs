@@ -4,7 +4,7 @@ import {mkdir} from 'node:fs/promises';
 import {setTimeout as wait} from 'node:timers/promises';
 import {chromium} from 'playwright-core';
 import {createGameServer} from '../server/index.js';
-import {deck,contains,dist,terminal,tasks,repairs,doors} from '../shared/deck.js';
+import {deck,contains,dist,terminal,tasks,repairs,doors,playerRadius} from '../shared/deck.js';
 
 import {deckWaypoints} from './deck-route.mjs';
 
@@ -195,7 +195,8 @@ try {
   await until(()=>operator.s.self.assignments.some(a=>a.id===wire.id&&a.stage===1&&!a.done),'Wiring advances to the next room');
   assert.equal(operator.s.progress.done,0);
   const badge=tasks.find(t=>t.id==='card').stops[0];
-  await navigate(operator,badge);
+  // Keep the position marker clear of the station marker when checking canvas pixels.
+  await navigate(operator,{x:badge.x-36,y:badge.y});
   await get(operator,'Map').click();
   assert.equal(await stationMarker(operator,badge),true);
   await operator.page.keyboard.press('Escape');
@@ -327,13 +328,20 @@ try {
   await shot(solo,'26-full-deck');
   await solo.page.keyboard.press('Escape');
   const hatch=doors.find(d=>d.label==='Cafeteria · east hall');
-  await navigate(solo,{x:hatch.x+40,y:hatch.y});
+  await navigate(solo,{x:hatch.x+64,y:hatch.y});
+  await until(()=>solo.s.positions.some(q=>q.id===solo.s.self.id&&!q.moving),'Stopped at the east shutter');
+  assert.ok(solo.s.self.x>hatch.x+hatch.w/2+playerRadius+2,'Standing clear of the shutter collision footprint');
   await shot(solo,'33-hall-open');
   await get(solo,'Test controls').click();
   await get(solo,'Sabotage').click();
   await solo.page.getByLabel('Bulkhead').selectOption(String(hatch.id));
   await get(solo,'Seal bulkhead').click();
-  await until(()=>solo.s.doors.includes(hatch.id),'East corridor shutter closes');
+  try {
+    await until(()=>solo.s.doors.includes(hatch.id),'East corridor shutter closes');
+  } catch (error) {
+    const notice=await solo.page.locator('#notice').textContent();
+    throw new Error(`East shutter did not close. Player ${solo.s.self.x},${solo.s.self.y}. Relay notice: ${notice || '(none)'}`,{cause:error});
+  }
   await shot(solo,'34-hall-closed');
   await advance(9800);
   await until(()=>!solo.s.doors.includes(hatch.id),'East corridor shutter reopens');
@@ -348,7 +356,10 @@ try {
     const example=demonstrations.get(room.id);
     if(!example)continue;
     const task=tasks.find(t=>t.id===example[0]);
-    await navigate(solo,task.stops[0]);
+    const station=task.stops[0];
+    // Enter from the distributor side so the nearby vent is not the closer station.
+    const approach=task.id==='calibrate'?{x:station.x+24,y:station.y+12}:station;
+    await navigate(solo,approach);
     await solo.page.locator('.space-action').filter({hasText:task.label}).waitFor();
     await solo.page.keyboard.press('Space');
     await solo.page.getByRole('dialog',{name:task.label}).waitFor();
