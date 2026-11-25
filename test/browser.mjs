@@ -118,6 +118,7 @@ try {
   await host.page.getByLabel('Common tasks').fill('2');
   await host.page.getByLabel('Strike cooldown (s)').fill('10');
   await host.page.getByLabel('Walk speed').fill('215');
+  await shot(host,'04a-match-settings');
   const phantom=host.page.locator('details').filter({hasText:'Phantom'});
   await phantom.locator('summary').click();
   await phantom.getByLabel('Enabled').check();
@@ -432,9 +433,7 @@ try {
     if(!example)continue;
     const task=tasks.find(t=>t.id===example[0]);
     const station=task.stops[0];
-    // Enter from the distributor side so the nearby vent is not the closer station.
-    const approach=task.id==='calibrate'?{x:station.x+24,y:station.y+12}:station;
-    await navigate(solo,approach);
+    await navigate(solo,station);
     await solo.page.locator('.space-action').filter({hasText:task.label}).waitFor();
     await solo.page.keyboard.press('Space');
     await solo.page.getByRole('dialog',{name:task.label}).waitFor();
