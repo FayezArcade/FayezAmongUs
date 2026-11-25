@@ -1,6 +1,6 @@
-import {walkable,dist} from '../shared/deck.js';
+import {walkable,dist,deckBounds} from '../shared/deck.js';
 
-const step=12,cols=114,rows=75;
+const step=12,cols=Math.ceil(deckBounds.width/step),rows=Math.ceil(deckBounds.height/step);
 const point=index=>({x:(index%cols)*step,y:Math.floor(index/cols)*step});
 const open=Uint8Array.from({length:cols*rows},(_,i)=>{const p=point(i);return walkable(p.x,p.y,false,[],22)?1:0;});
 const cells=[...open.keys()].filter(i=>open[i]);

@@ -1,5 +1,5 @@
 import {io} from 'socket.io-client';
-import {colors,suitPalette,hats,rooms,deckRevision,deck,doors,vents,ventDestinations,tasks,taskRange,taskStageName,repairs,terminal,meetingPoint,emergencyRange,contains,clearDeckLine,dist} from '../shared/deck.js';
+import {colors,suitPalette,hats,rooms,deckRevision,deck,deckBounds,doors,vents,ventDestinations,tasks,taskRange,taskStageName,repairs,terminal,meetingPoint,emergencyRange,contains,clearDeckLine,dist} from '../shared/deck.js';
 import {special} from '../shared/roles.js';
 import {astronaut,renderer,drawMap,drawDeckOverview,suitPortrait} from './art.js';
 import {taskPanel} from './tasks.js';
@@ -7,6 +7,7 @@ import {movement} from './movement.js';
 import './style.css';
 import './flight.css';
 
+const deckCanvas=(width,classes='map')=>`<canvas class="${classes}" width="${width}" height="${Math.round(width*deckBounds.height/deckBounds.width)}"></canvas>`;
 const screen=document.querySelector('#screen'), layer=document.querySelector('#overlay'), flash=document.querySelector('#notice');
 const render=renderer(document.querySelector('#deck'));
 const relay=(import.meta.env.VITE_SERVER_URL||'').replace(/\/$/,'');
@@ -493,7 +494,7 @@ async function click(b){
   }
   if(action==='practice-meeting')await command('practiceMeeting',{kind:id});
   if(action==='deck-overview'&&s.solo){
-    panel('deck-overview','Meridian flight deck','<canvas class="map" width="1092" height="720"></canvas>',{className:'map-panel'});
+    panel('deck-overview','Meridian flight deck',deckCanvas(1092),{className:'map-panel'});
     drawDeckOverview(layer.querySelector('canvas'));
   }
   if(action==='practice-role'){
@@ -504,13 +505,13 @@ async function click(b){
   if(action==='practice-return')await command('practiceReturn');
   if(action==='map'&&s.phase==='play'){
     if(modal?.kind==='map'){closeModal(false);return;}
-    panel('map','Meridian deck plan','<canvas class="map" width="950" height="626"></canvas><div class="map-legend"><span>● Your position</span><span>● Assigned station</span><span>● Active repairs</span></div>',{className:'map-panel blue-map'});
+    panel('map','Meridian deck plan',deckCanvas(980)+'<div class="map-legend"><span>● Your position</span><span>● Assigned station</span><span>● Active repairs</span></div>',{className:'map-panel blue-map'});
     document.getElementById('map-open').hidden=true;
     layer.firstElementChild.insertAdjacentHTML('beforeend',mapButton('map-close'));
     drawMap(layer.querySelector('canvas'),state);
   }
   if(action==='sabotage'&&s.phase==='play'&&(p.team==='impostor'||s.solo)){
-    panel('sabotage','Sabotage controls',`<canvas class="map sabotage-map" width="900" height="594"></canvas><p id="sabotage-status"></p><p class="sabotage-legend">Dashed lines show hatch links. Squares show bulkheads. L / C / O / R mark lights, comms, oxygen and reactor.</p><div class="targets">${Object.keys(repairs).map(k=>btn(k.toUpperCase(),'target-sabotage','danger','data-id="'+k+'"')).join('')}</div><label>Bulkhead<select id="door">${doors.map(d=>'<option value="'+d.id+'">'+escape(d.label)+'</option>').join('')}</select></label>${btn('Seal bulkhead','target-sabotage','outline','data-id="doors"')}`,{className:'map-panel'});
+    panel('sabotage','Sabotage controls',`${deckCanvas(900,'map sabotage-map')}<p id="sabotage-status"></p><p class="sabotage-legend">Dashed lines show hatch links. Squares show bulkheads. L / C / O / R mark lights, comms, oxygen and reactor.</p><div class="targets">${Object.keys(repairs).map(k=>btn(k.toUpperCase(),'target-sabotage','danger','data-id="'+k+'"')).join('')}</div><label>Bulkhead<select id="door">${doors.map(d=>'<option value="'+d.id+'">'+escape(d.label)+'</option>').join('')}</select></label>${btn('Seal bulkhead','target-sabotage','outline','data-id="doors"')}`,{className:'map-panel'});
     drawMap(layer.querySelector('canvas'),state,true);
   }
   if(action==='target-sabotage'&&(await command('sabotage',{kind:id,door:Number(document.querySelector('#door').value)})).ok)closeModal(false);

@@ -4,7 +4,7 @@ import {mkdir} from 'node:fs/promises';
 import {setTimeout as wait} from 'node:timers/promises';
 import {chromium} from 'playwright-core';
 import {createGameServer} from '../server/index.js';
-import {deck,contains,dist,terminal,tasks,repairs,doors,playerRadius} from '../shared/deck.js';
+import {deck,deckBounds,contains,dist,terminal,tasks,repairs,doors,playerRadius} from '../shared/deck.js';
 
 import {deckWaypoints} from './deck-route.mjs';
 
@@ -33,11 +33,11 @@ try {
   const shot=async(p,name)=>p.page.screenshot({path:path+'/'+name+'.png',animations:'allow',timeout:10000});
   const get=(p,text)=>p.page.getByRole('button',{name:text,exact:true}).first();
   const stationMarker=(p,station)=>p.page.locator('.blue-map canvas').evaluate((canvas,point)=>{
-    const ctx=canvas.getContext('2d'),x=Math.round(point.x*canvas.width/1365),y=Math.round(point.y*canvas.height/900);
+    const ctx=canvas.getContext('2d'),x=Math.round(point.x*canvas.width/point.worldWidth),y=Math.round(point.y*canvas.height/point.worldHeight);
     const pixels=ctx.getImageData(x-5,y-5,11,11).data;
     for(let i=0;i<pixels.length;i+=4)if(pixels[i]===243&&pixels[i+1]===207&&pixels[i+2]===98)return true;
     return false;
-  },station);
+  },{...station,worldWidth:deckBounds.width,worldHeight:deckBounds.height});
   async function until(fn,label,limit=10000){
     const end=Date.now()+limit;
     while(Date.now()<end){const v=fn();if(v)return v;await wait(40);}

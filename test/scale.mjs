@@ -4,7 +4,7 @@ import {mkdir} from 'node:fs/promises';
 import {setTimeout as wait} from 'node:timers/promises';
 import {chromium} from 'playwright-core';
 import {createGameServer} from '../server/index.js';
-import {walkable} from '../shared/deck.js';
+import {walkable,deck,doors} from '../shared/deck.js';
 
 let offset=0;
 const {server,close}=createGameServer({now:()=>Date.now()+offset,serve:true});
@@ -41,13 +41,12 @@ try{
   await until(s=>s.phase==='countdown','Launch');
   offset+=3100;await until(s=>s.phase==='reveal','Role card');
   offset+=3500;await until(s=>s.phase==='play','Enter Cafeteria');
-  if(state.self.y>225)await move('w',p=>p.y<=226);
-  if(state.self.y<215)await move('s',p=>p.y>=216);
-  await move('d',p=>p.x>=675);
+  const room=deck.cafe, door=doors.find(d=>d.label==='Cafeteria · east hall');
+  await move('w',p=>p.y<=room.y+15);
   await wait(250);
   await page.screenshot({path:directory+'/beside-table.png'});
-  await move('w',p=>p.y<=153);
-  await move('d',p=>p.x>=885);
+  await move('w',p=>p.y<=door.y+5);
+  await move('d',p=>p.x>=door.x+61);
   await wait(250);
   await page.screenshot({path:directory+'/corridor.png'});
   console.log('Standing poses captured beside the table and inside the Weapons corridor.');

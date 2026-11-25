@@ -2,14 +2,15 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {deckWaypoints} from './deck-route.mjs';
 import {puzzle,publicPuzzle,stepPuzzle} from '../server/puzzles.js';
-import {rooms,routes,doors,entrances,tasks,taskRange,repairs,vents,deck,walkable,clearDeckLine,dist} from '../shared/deck.js';
+import {rooms,routes,doors,entrances,tasks,taskRange,repairs,vents,deck,deckBounds,furnishings,diningTables,spawn,walkable,clearDeckLine,dist} from '../shared/deck.js';
 
 test('all deck rooms are connected, stations are reachable and doors block transit',()=>{
   for(const room of rooms)assert.ok(deckWaypoints(deck.cafe,room).length>1,room.name);
   for(const route of routes)for(const point of route.points)assert.ok(walkable(point.x,point.y,false));
   for(const point of [...vents,...Object.values(repairs).flat()])assert.ok(walkable(point.x,point.y,false));
   for(const {x,y} of entrances)assert.ok(walkable(x,y,false));
-  assert.equal(walkable(470,440,false),false,'Space between MedBay and Electrical');
+  assert.equal(clearDeckLine(deck.med,deck.security),false,'MedBay and Security have separate entrances');
+  assert.equal(clearDeckLine(deck.med,deck.electrical),false,'MedBay and Electrical are separated by the hull');
   assert.equal(clearDeckLine(deck.admin,deck.oxygen),false,'Admin and O2 are separated by the hull');
   for(const v of tasks)for(const q of v.stops)assert.ok(walkable(q.x,q.y,false),v.id);
   for(const d of doors){
@@ -18,6 +19,25 @@ test('all deck rooms are connected, stations are reachable and doors block trans
     assert.ok(clearDeckLine(a,b),d.label);
     assert.equal(clearDeckLine(a,b,[d.id]),false,d.label);
     assert.equal(walkable(d.x,d.y,false,[d.id]),false);
+  }
+});
+
+test('shuttle riders spawn clear of fixtures and deck ports stay inside their wall spans',()=>{
+  for(let i=0;i<10;i++){
+    const point=spawn(i,false);
+    assert.ok(walkable(point.x,point.y,false),'Cafeteria spawn '+i);
+  }
+  for(const item of [...furnishings,...diningTables]){
+    assert.equal(walkable(item.x,item.y,false),false,item.kind||'Dining table');
+  }
+  for(const room of rooms){
+    assert.ok(room.x-room.w/2>0&&room.x+room.w/2<deckBounds.width,room.name);
+    assert.ok(room.y-room.h/2>0&&room.y+room.h/2<deckBounds.height,room.name);
+  }
+  for(const entry of entrances){
+    const room=deck[entry.room];
+    const offset=entry.horizontal?Math.abs(entry.y-room.y):Math.abs(entry.x-room.x);
+    assert.ok(offset+entry.width/2<=(entry.horizontal?room.h:room.w)/2-room.chamfer,entry.room+' '+entry.side);
   }
 });
 

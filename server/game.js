@@ -260,15 +260,16 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         const opened=p.opened;
         valid(opened,'Open a task first.');
         const a=usable(r,p,opened.id);
+        const task=tasks.find(v=>v.id===a.id), stop=task.stops[a.stage];
         const attempt=stepPuzzle(opened,req,t);
         if(p.team==='crew'&&p.alive&&!attempt.error){
           const kind=opened.instrument;
           if(kind==='target')r.taskEffects.target={kind,x:deck.weapons.x+55,y:deck.weapons.y-5,until:t+520};
           if(kind==='shield'&&attempt.done)r.taskEffects.shield={kind,x:deck.shields.x,y:deck.shields.y};
-          if(kind==='waste'&&a.stage===1&&attempt.done)r.taskEffects.waste={kind,x:deck.storage.x+78,y:deck.storage.y+70,until:t+1300};
+          if(kind==='waste'&&a.stage===1&&attempt.done)r.taskEffects.waste={kind,x:stop.x,y:stop.y+15,until:t+1300};
         }
         if(attempt.done){
-          a.stage++;a.done=a.stage===tasks.find(v=>v.id===a.id).stops.length;if(a.done&&p.role==='scientist')p.battery=true;p.opened=null;win(r);
+          a.stage++;a.done=a.stage===task.stops.length;if(a.done&&p.role==='scientist')p.battery=true;p.opened=null;win(r);
         }
         return {...attempt,puzzle:publicPuzzle(p.opened,t)};
       }
