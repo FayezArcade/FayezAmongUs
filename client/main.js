@@ -1,7 +1,8 @@
 import {io} from 'socket.io-client';
-import {colors,suitPalette,hats,rooms,deckRevision,deck,deckBounds,doors,vents,ventDestinations,tasks,taskRange,taskStageName,repairs,terminal,meetingPoint,emergencyRange,contains,clearDeckLine,dist} from '../shared/deck.js';
+import {colors,suitPalette,hats,rooms,deckRevision,deck,deckBounds,doors,vents,ventDestinations,tasks,taskRange,taskStageName,repairs,terminal,meetingPoint,emergencyRange,securityConsole,securityRange,cameraSites,contains,clearDeckLine,dist} from '../shared/deck.js';
+import {gameNumbers,gameChecks,taskBars} from '../shared/settings.js';
 import {special} from '../shared/roles.js';
-import {astronaut,renderer,drawMap,drawDeckOverview,suitPortrait} from './art.js';
+import {astronaut,renderer,drawMap,drawDeckOverview,drawSecurityFeeds,suitPortrait} from './art.js';
 import {taskPanel} from './tasks.js';
 import {movement} from './movement.js';
 import './style.css';
@@ -33,7 +34,7 @@ const roleName=p=>special[p.alive?p.role:p.ghost]?.name||(p.alive?p.team==='impo
 
 let selectedVote=null,meetingTab='ballot',chatSeen=0;
 const mapButton=id=>btn(glyph('map'),'map','map-toggle',
-  'id="'+id+'" aria-label="Map" title="Map [M]" aria-expanded="'+(id==='map-open'?'false':'true')+'"');
+  'id="'+id+'" aria-label="Map" title="Map [M or hold Tab]" aria-expanded="'+(id==='map-open'?'false':'true')+'"');
 const promptButton=action=>action?btn('<kbd>SPACE</kbd> '+escape(action.label),'interact','space-action'):'';
 
 let state=null,session=null,joining=false,entry=null,modal=null,phase='',skew=0,noticeTimer,wasReady=false,uiKey='',audio;
@@ -53,6 +54,7 @@ function syncMovement(at=performance.now()){
   return true;
 }
 function clearMovement(){
+  if(modal?.kind==='map'&&modal.held)closeModal(false);
   held.clear();touch.clear();pendingInteraction=null;
   syncMovement();
 }
@@ -159,6 +161,7 @@ socket.on('state',s=>{
   }
 });
 function closeModal(cancel=true) {
+  if(cancel&&modal?.kind==='cameras')void command('cameraOff');
   if(cancel&&modal?.kind==='task')void command('taskClose');
   const mapWasOpen=modal?.kind==='map';
   modal=null;layer.replaceChildren();touch.clear();
@@ -190,7 +193,12 @@ function hud(){
       </div>
     </div>`:`<aside class="deck-brief"><div class="flight-data"><div class="bar"><small>SHIP RESTORATION <span id="task-count"></span></small><progress max="1" value="0" id="task-progress"></progress></div></div><div id="side-info"></div></aside><div class="flight-tools">${mapButton('map-open')}${btn(glyph('settings'),'flight-settings','flight-options','aria-label="Settings" title="Settings"')}</div><div class="location"><span id="current-room"></span></div><div class="role-label">${roleText}</div>`}
     <div class="alert" id="emergency" hidden></div>
-  <footer class="controls"><div class="controls-hint"><span>WASD / ↑↓←→</span> Move <span>SPACE</span> Use</div>${inLobby?'':`<div class="actions">${me.team==='impostor'&&me.alive?btn('Eliminate','strike','danger','id="strike-action"'):''}${me.team==='impostor'?btn('Sabotage','sabotage','danger'):''}${me.role||me.ghost?btn('Ability','ability'):''}${s.solo?btn('Test controls','practice','outline'):''}</div>`}</footer><div class="touch" aria-label="Movement controls">${[['up','↑'],['left','←'],['down','↓'],['right','→']].map(([d,label])=>`<button type="button" data-move="${d}" aria-label="Move ${d}">${label}</button>`).join('')}</div><div class="prompt" id="prompt"></div></main>`;
+  <footer class="controls"><div class="controls-hint"><span>WASD / ↑↓←→</span> Move <span>SPACE</span> Use</div>${inLobby?'':`<div class="actions">${me.team==='impostor'&&me.alive?btn('Eliminate','strike','danger','id="strike-action"'):''}${me.team==='impostor'?btn('Sabotage','sabotage','danger'):''}${me.alive&&(me.team==='impostor'||me.role==='engineer')?btn('Vent [V]','use-hatch','outline','id="vent-action" hidden'):''}${me.role||me.ghost?btn('Ability','ability'):''}${s.solo?btn('Test controls','practice','outline'):''}</div>`}</footer><div class="touch" aria-label="Movement controls">${[['up','↑'],['left','←'],['down','↓'],['right','→']].map(([d,label])=>`<button type="button" data-move="${d}" aria-label="Move ${d}">${label}</button>`).join('')}</div><div class="prompt" id="prompt"></div></main>`;
+}
+function canUseHatch(s,p){
+  return p.alive&&(Number.isInteger(p.ventIndex)||now()>=(p.ventAt||0)&&
+    (p.team==='impostor'||p.role==='engineer'&&(p.effect==='engineer'||now()>=p.abilityAt))&&
+    vents.some(v=>dist(p,v)<48&&clearDeckLine(p,v,s.doors)));
 }
 function contextAction(p=state.self){
   const s=state;
@@ -201,16 +209,18 @@ function contextAction(p=state.self){
   const b=p.alive&&nearest(s.bodies.filter(line),p,70);
   if(b)return {label:'Report incident',kind:'report',data:{id:b.id}};
   if(s.sabotage?.nearby.length)return {label:'Repair '+s.sabotage.kind,kind:'repair'};
+  const security=p.alive&&dist(p,securityConsole)<securityRange&&line(securityConsole)&&s.sabotage?.kind!=='comms';
+  if(security&&dist(p,securityConsole)<22)return {label:'Watch Security cameras',kind:'monitor',data:'security'};
   const available=p.assignments.filter(a=>!a.done).map(a=>{
     const task=tasks.find(t=>t.id===a.id);
     return {...task.stops[a.stage],id:a.id,label:taskStageName(task,a.stage)};
   });
   const a=nearest(available.filter(q=>dist(p,q)<taskRange(q.id)&&line(q)),p,57);
   if(a&&s.sabotage?.kind!=='comms')return {label:a.label,kind:'task',data:a.id};
-  if(p.alive&&(p.team==='impostor'||p.effect==='engineer')&&vents.some(v=>dist(p,v)<48&&line(v)))return {label:'Use service hatch',kind:'vent'};
+  if(canUseHatch(s,p))return {label:'Use service hatch',kind:'vent'};
   if(p.alive&&dist(p,meetingPoint)<emergencyRange&&line(meetingPoint)&&p.emergencies>0&&!s.sabotage&&now()>p.meetingAt)return {label:'Call emergency assembly',kind:'emergency'};
   if(p.alive&&dist(p,deck.admin)<85&&line(deck.admin)&&s.sabotage?.kind!=='comms')return {label:'View command telemetry',kind:'monitor',data:'command'};
-  if(p.alive&&dist(p,deck.security)<85&&line(deck.security)&&s.sabotage?.kind!=='comms')return {label:'View sector activity',kind:'monitor',data:'security'};
+  if(security)return {label:'Watch Security cameras',kind:'monitor',data:'security'};
   return null;
 }
 function update(){
@@ -236,16 +246,22 @@ function update(){
   }
   if(s.phase==='countdown')document.querySelector('#countdown-number').textContent=Math.max(1,Math.ceil((s.until-now())/1000));
   if(s.phase==='play'){
-    const progress=document.querySelector('#task-progress');progress.value=s.progress.total?s.progress.done/s.progress.total:0;
-    document.querySelector('#task-count').textContent=s.progress.done+' / '+s.progress.total;
+    const progress=document.querySelector('#task-progress');
+    progress.closest('.flight-data').hidden=!s.progress;
+    if(s.progress){
+      progress.value=s.progress.total?s.progress.done/s.progress.total:0;
+      document.querySelector('#task-count').textContent=s.progress.done+' / '+s.progress.total;
+    }
     const current=rooms.find(r=>contains(r,p.x,p.y))?.name||'Transit';
     const stationList=s.sabotage?.kind==='comms'?'<li>Communications offline</li>':
       p.assignments.filter(a=>!a.done).slice(0,4).map(a=>{
         const task=tasks.find(t=>t.id===a.id),stop=task.stops[a.stage];
-        return '<li><span>'+escape(taskStageName(task,a.stage))+'</span><small>'+escape(deck[stop.room].name)+(task.stops.length>1?' · '+(a.stage+1)+'/'+task.stops.length:'')+'</small></li>';
+        return '<li><span>'+escape(taskStageName(task,a.stage))+'</span><small>'+escape(stop.name||deck[stop.room].name)+(task.stops.length>1?' · '+(a.stage+1)+'/'+task.stops.length:'')+'</small></li>';
       }).join('')||'<li>Assignments complete</li>';
     document.querySelector('#current-room').textContent=current;
     markup('side-info',`<div class="task-brief">${btn(p.team==='impostor'?'Cover tasks':'Tasks','tasks','quiet')}<ul>${stationList}</ul></div>`);
+    const ventButton=document.getElementById('vent-action');
+    if(ventButton)ventButton.hidden=!canUseHatch(s,p);
     const strike=document.getElementById('strike-action');
     if(strike){strike.disabled=now()<p.killAt;strike.textContent=strike.disabled?'Eliminate '+clock(p.killAt,now())+'s':'Eliminate [Q]';}
     const danger=document.querySelector('#emergency');danger.hidden=!s.sabotage;
@@ -263,17 +279,29 @@ function update(){
   }
   if(modal?.kind==='sabotage'){
     drawMap(layer.querySelector('canvas'),s,true);
-    document.querySelector('#sabotage-status').textContent=s.sabotage?
-      s.sabotage.kind.toUpperCase()+' ACTIVE'+(s.sabotage.until?' · '+clock(s.sabotage.until,now())+'s':''):
-      now()>=p.sabotageAt?'Ready to disrupt':'Cooldown · '+clock(p.sabotageAt,now())+'s';
+    refreshSabotage();
   }
   if(modal?.kind==='map')drawMap(layer.querySelector('canvas'),s);
   if(modal?.kind==='task'){
     if(s.puzzle?.id!==modal.id&&!modal.pending&&now()-modal.openedAt>300)closeModal(false);
     else if(s.puzzle)modal.task.update(s.puzzle,now());
   }
-  if(modal?.kind==='repair'&&(!s.sabotage||!s.sabotage.nearby.length))closeModal(false);
-  if(modal?.kind==='repair'&&s.sabotage?.kind==='lights') for(const [i,b] of [...layer.querySelectorAll('[data-switch]')].entries()){b.classList.toggle('active',s.sabotage.pattern[i]);b.textContent=s.sabotage.pattern[i]?'ON':'OFF';}
+  if(modal?.kind==='cameras'){
+    if(s.sabotage?.kind==='comms'){closeModal(false);notice('Communications cut the camera feeds.');}
+    else if(s.tactical.cameras)drawSecurityFeeds(layer.querySelectorAll('.camera-feed canvas'),s);
+    else if(now()-modal.openedAt>500)closeModal(false);
+  }
+  if(modal?.kind==='vent'){
+    if(!Number.isInteger(p.ventIndex)&&now()-modal.openedAt>500)closeModal(false);
+    else{
+      const wait=Math.max(0,(p.ventAt||0)-now());
+      const timer=p.team==='crew'?clock(p.effectUntil,now()):null;
+      layer.querySelector('#hatch-status').textContent=(timer!==null?'Engineer air reserve · '+timer+'s':'Concealed in the service network')+(wait?' · Hatch cycling':'');
+      for(const b of layer.querySelectorAll('[data-do=vent]'))b.disabled=Boolean(wait);
+      drawMap(layer.querySelector('canvas'),s,false,modal.index);
+    }
+  }
+  if(modal?.kind==='repair')refreshRepair();
   if(modal?.kind==='suit')for(const b of layer.querySelectorAll('[data-color]')){b.disabled=s.roster.some(q=>q.id!==p.id&&q.color===b.dataset.color);b.classList.toggle('active',p.color===b.dataset.color);b.setAttribute('aria-pressed',String(p.color===b.dataset.color));}
 }
 function cinemaSuit(canvas,p){
@@ -306,7 +334,7 @@ function cinematic(){
       <div class="meeting-tabs" aria-label="Meeting views">
         ${btn('Ballot','meeting-tab','outline','data-id="ballot" id="meeting-ballot-button" aria-controls="meeting-ballot"')}
         ${btn(glyph('radio')+' Chat <span id="unread-chat" hidden></span>','meeting-tab','outline','data-id="chat" id="meeting-chat-button" aria-controls="meeting-chat"')}</div></div>
-      <p class="meeting-caller">${escape(byline)}${s.solo?' · Solo drill':''}</p><p id="meeting-time"></p></header>
+      <p class="meeting-caller">${escape(byline)}${s.solo?' · Solo drill':''}</p><p id="meeting-time"></p><progress id="meeting-task-progress" aria-label="Crew task progress" max="1" hidden></progress></header>
       <div class="meeting-views"><section id="meeting-ballot"><div id="ballot" class="ballot-grid"></div><div id="ballot-controls"></div></section>
       <section id="meeting-chat" class="tablet-comms" hidden><h2>Meeting chat</h2>${chatForm()}</section></div></div></div></main>`;
     }
@@ -320,6 +348,11 @@ function cinematic(){
   }
 }
 function refreshMeeting(){
+  const bar=document.querySelector('#meeting-task-progress');
+  if(bar&&state.progress){
+    bar.hidden=false;
+    bar.value=state.progress.total?state.progress.done/state.progress.total:0;
+  }
   const s=state,m=s.meeting,p=s.self,discuss=s.now<m.voteAt;
   document.querySelector('#meeting-time').textContent=(discuss?'DISCUSSION: '+clock(m.voteAt,now()):'VOTING ENDS IN: '+clock(m.end,now()))+' SECONDS';
   const can=!discuss&&p.alive&&!m.myVote;
@@ -358,11 +391,17 @@ function refreshChat(){
   const bottom=box.scrollTop+box.clientHeight>box.scrollHeight-42;
   box.innerHTML=msg;box.dataset.content=msg;if(bottom)box.scrollTop=box.scrollHeight;
 }
-const numbers={impostors:['Infiltrators',1,3],discussion:['Discussion (s)',5,90],voting:['Voting (s)',10,120],killCooldown:['Strike cooldown (s)',10,60],meetingCooldown:['Intercom cooldown (s)',5,60],shortTasks:['Short tasks',0,8],longTasks:['Long tasks',0,5],commonTasks:['Common tasks',0,2],crewVision:['Crew vision',120,450],speed:['Walk speed',95,240]};
 const numberField=(name,label,min,max,value)=>`<label>${label}<input type="number" name="${name}" min="${min}" max="${max}" value="${value}" required></label>`;
+const roleFields=id=>id==='judge'?[]:id==='noisemaker'?['duration']:['cooldown','duration'];
 function settingsPanel(){
   const cfg=state.settings;
-  panel('settings','Lobby settings',`<form id="settings-form"><div class="settings-grid">${Object.entries(numbers).map(([key,[label,min,max]])=>numberField(key,label,min,max,cfg[key])).join('')}</div><div class="checks"><label><input type="checkbox" name="anonymous" ${cfg.anonymous?'checked':''}> Anonymous voting</label><label><input type="checkbox" name="confirm" ${cfg.confirm?'checked':''}> Confirm ejection team</label><label><input type="checkbox" name="early" ${cfg.early?'checked':''}> End voting when all eligible players vote</label></div><h3>Optional roles</h3><p class="muted">Each role starts disabled. Available seats depend on team size.</p><div class="roles-grid">${Object.entries(special).map(([id,v])=>`<details><summary>${v.name} <small>${v.team}</small></summary><p>${v.description}</p><label><input type="checkbox" name="${id}:enabled" ${cfg.roles[id].enabled?'checked':''}> Enabled</label><div class="settings-grid">${[['max','Max',0,4],['chance','Chance (%)',0,100],['cooldown','Cooldown (s)',0,100],['duration','Duration (s)',0,55]].map(([k,l,a,b])=>numberField(id+':'+k,l,a,b,cfg.roles[id][k])).join('')}</div></details>`).join('')}</div><button class="primary">Save settings</button></form>`,{className:'wide'});
+  const numberInputs=Object.entries(gameNumbers).map(([key,[label,min,max]])=>numberField(key,label,min,max,cfg[key])).join('');
+  const checks=Object.entries(gameChecks).map(([key,label])=>`<label><input type="checkbox" name="${key}" ${cfg[key]?'checked':''}> ${label}</label>`).join('');
+  const roles=Object.entries(special).map(([id,v])=>{
+    const values=[['max','Max',0,4],['chance','Chance (%)',0,100],...roleFields(id).map(k=>[k,k==='duration'?'Duration (s)':'Cooldown (s)',k==='duration'?1:0,k==='duration'?55:100])];
+    return `<details><summary>${v.name} <small>${v.team}</small></summary><p>${v.description}</p><label><input type="checkbox" name="${id}:enabled" ${cfg.roles[id].enabled?'checked':''}> Enabled</label><div class="settings-grid">${values.map(([k,l,a,b])=>numberField(id+':'+k,l,a,b,cfg.roles[id][k])).join('')}</div></details>`;
+  }).join('');
+  panel('settings','Lobby settings',`<form id="settings-form"><div class="settings-grid">${numberInputs}<label>Task bar updates<select name="taskBar">${Object.entries(taskBars).map(([key,label])=>`<option value="${key}" ${cfg.taskBar===key?'selected':''}>${label}</option>`).join('')}</select></label></div><div class="checks">${checks}</div><h3>Optional roles</h3><p class="muted">Roles start disabled. Available seats depend on team size.</p><div class="roles-grid">${roles}</div><button class="primary">Save settings</button></form>`,{className:'wide'});
 }
 function suitPanel(){
   const p=state.self;
@@ -373,17 +412,55 @@ function suitPanel(){
 function missionList(){
   if(state.sabotage?.kind==='comms'){panel('tasks','Assignments offline','<p>Restore comms to recover ship assignments.</p>');return;}
   const p=state.self;
-  panel('tasks',p.team==='impostor'?'Cover assignments':'Assigned maintenance',`<ul class="mission-list">${p.assignments.map(a=>{const task=tasks.find(v=>v.id===a.id);return '<li class="'+(a.done?'done':'')+'"><b>'+escape(a.done?task.label:taskStageName(task,a.stage))+'</b><span>'+(a.done?'Complete':deck[task.stops[a.stage].room].name+' • '+task.kind+(task.stops.length>1?' '+(a.stage+1)+'/'+task.stops.length:'')+(task.instrument==='route'&&a.stage===0?' → '+deck[task.stops[1].room].name:''))+'</span></li>';}).join('')}</ul>`);
+  panel('tasks',p.team==='impostor'?'Cover assignments':'Assigned maintenance',`<ul class="mission-list">${p.assignments.map(a=>{const task=tasks.find(v=>v.id===a.id);return '<li class="'+(a.done?'done':'')+'"><b>'+escape(a.done?task.label:taskStageName(task,a.stage))+'</b><span>'+(a.done?'Complete':(task.stops[a.stage].name||deck[task.stops[a.stage].room].name)+' • '+task.kind+(task.stops.length>1?' '+(a.stage+1)+'/'+task.stops.length:'')+(task.instrument==='route'&&a.stage===0?' → '+deck[task.stops[1].room].name:''))+'</span></li>';}).join('')}</ul>`);
 }
+const alarmNames={reactor:'Reactor meltdown',oxygen:'Oxygen depletion',lights:'Lighting failure',comms:'Communications failure'};
 function repairPanel(){
-  const s=state.sabotage, station=s?.nearby[0];if(!station)return;
+  const s=state.sabotage, station=s?.nearby[0];
+  if(!station)return;
   const body={
-    lights:'<p>Set all five breaker levers to ON.</p><div class="switches">'+s.pattern.map((on,i)=>btn(on?'ON':'OFF','switch',on?'active':'','data-switch="'+i+'"')).join('')+'</div>',
-    oxygen:'<p>Match the pressure controller code at this station.</p><div class="digits">'+station.code+'</div><form id="repair-form"><label>Pressure code<input name="reading" inputmode="numeric" minlength="5" maxlength="5" required></label><button class="primary">Restore pressure</button></form>',
-    reactor:'<p>Synchronize two relay stations with another crewmate. Both taps must fall within five seconds.</p>'+btn('Press relay pad','relay-pad','primary'),
-    comms:'<p>Tune the receiver to '+station.dial+' kHz.</p><form id="repair-form"><label>Receiver frequency<input name="reading" type="range" min="0" max="100" value="50" oninput="this.nextElementSibling.value=this.value"><output>50</output></label><button class="primary">Lock frequency</button></form>'
-  }[s.kind];
-  panel('repair',s.kind[0].toUpperCase()+s.kind.slice(1)+' recovery',body,{station:station.index});
+    lights:()=>'<div class="repair-chassis"><p>Bring all five circuits online.</p><div class="switches">'+s.pattern.map((on,i)=>btn(on?'ON':'OFF','switch',on?'active':'','data-switch="'+i+'" aria-label="Circuit '+(i+1)+'"')).join('')+'</div></div>',
+    oxygen:()=>`<form id="repair-form" class="repair-chassis"><p>Enter the pressure controller code at this panel.</p><div class="digits">${station.code}</div><label>Pressure code<input name="reading" inputmode="numeric" pattern="[0-9]{5}" minlength="5" maxlength="5" autocomplete="off" required></label><button class="primary">Restore pressure</button></form>`,
+    reactor:()=>'<div class="repair-chassis"><p>Link both relay pads within five seconds. In a group match, one player operates each pad.</p>'+btn('Press relay pad','relay-pad','primary reactor-pad')+'</div>',
+    comms:()=>'<form id="repair-form" class="repair-chassis"><p>Match the receiver trace to the reference.</p><div class="signal-display" aria-hidden="true"><svg viewBox="0 0 300 85" preserveAspectRatio="none"><path id="signal-reference"/><path id="signal-reading"/></svg></div><label>Receiver frequency<input id="receiver-frequency" name="reading" type="range" min="0" max="100" value="50"></label><output id="signal-match" for="receiver-frequency"></output><button class="primary">Lock frequency</button></form>'
+  }[s.kind]();
+  panel('repair',s.kind[0].toUpperCase()+s.kind.slice(1)+' recovery','<p id="repair-status" role="status"></p>'+body,{station:station.index,className:'repair-console'});
+  if(s.kind==='comms'){
+    const form=layer.querySelector('form'),input=form.elements.reading;
+    const trace=frequency=>Array.from({length:91},(_,i)=>(i?'L':'M')+(i*10/3)+' '+(42+Math.sin(i*frequency/290)*26)).join(' ');
+    form.querySelector('#signal-reference').setAttribute('d',trace(station.dial));
+    const draw=()=>{
+      const value=Number(input.value),delta=value-station.dial;
+      form.querySelector('#signal-reading').setAttribute('d',trace(value));
+      form.querySelector('#signal-match').textContent=Math.abs(delta)<=3?'Signal aligned':delta<0?'Increase frequency':'Decrease frequency';
+    };
+    input.addEventListener('input',draw);
+    draw();
+  }
+  refreshRepair();
+}
+function refreshRepair(){
+  const s=state.sabotage;
+  if(!s?.nearby.some(v=>v.index===modal.station)){closeModal(false);return;}
+  const timer=s.until?' · '+clock(s.until,now())+'s left':'';
+  const stations=repairs[s.kind].length>1?' · '+s.fixed.length+' / 2 stations linked':'';
+  layer.querySelector('#repair-status').textContent=alarmNames[s.kind]+timer+stations;
+  if(s.kind==='lights')for(const [i,b] of [...layer.querySelectorAll('[data-switch]')].entries()){
+    b.classList.toggle('active',s.pattern[i]);b.textContent=s.pattern[i]?'ON':'OFF';b.setAttribute('aria-pressed',String(s.pattern[i]));
+  }
+  if(s.kind==='reactor')layer.querySelector('.reactor-pad').classList.toggle('active',s.fixed.some(v=>v.index===modal.station));
+}
+function refreshSabotage(){
+  const {sabotage,doors:sealed,self:p}=state;
+  const t=now(),door=Number(layer.querySelector('#door').value),ready=p.sabotageAt<=t&&!sealed.length&&!sabotage;
+  layer.querySelector('#sabotage-status').textContent=sabotage?
+    alarmNames[sabotage.kind]+(sabotage.until?' · '+clock(sabotage.until,t)+'s':''):
+    sealed.length?'System disruptions wait for the shutters':ready?'System disruption ready':'Systems cooldown · '+clock(p.sabotageAt,t)+'s';
+  for(const button of layer.querySelectorAll('[data-do=target-sabotage]')){
+    const isDoor=button.dataset.id==='doors',until=p.doorReady?.[door]||0;
+    button.disabled=isDoor?Boolean(sabotage||sealed.includes(door)||until>t):!ready;
+    if(isDoor)button.textContent=sealed.includes(door)?'Bulkhead sealed':until>t?'Bulkhead cooldown · '+clock(until,t)+'s':'Seal bulkhead';
+  }
 }
 function abilityPanel(){
   const s=state,p=s.self,id=p.alive?p.role:p.ghost,role=special[id];
@@ -440,19 +517,32 @@ async function performInteraction(action){
   }
   if(action.kind==='vent'){
     if(Number.isInteger(state.self.ventIndex))showHatch(state.self.ventIndex);
-    else {const res=await command('vent',{action:'enter'});if(res.ok)showHatch(vents.findIndex(v=>dist(state.self,v)<48));}
+    else {const res=await command('vent',{action:'enter'});if(res.ok)showHatch(res.index);}
     return;
   }
   if(action.kind==='monitor'){
     const res=await command('monitor',{kind:action.data});
-    if(res.ok)panel('monitor',action.data==='security'?'Sector activity':'Command telemetry','<ul class="mission-list">'+res.readings.map(([k,v])=>'<li><b>'+escape(k)+'</b><span>'+escape(v)+'</span></li>').join('')+'</ul>'+btn('Refresh','interact'));
+    if(res.security){
+      panel('cameras','Security surveillance','<div class="security-grid">'+cameraSites.map((site,i)=>
+        `<figure class="camera-feed"><figcaption><span>0${i+1} · ${site.name}</span><small>LIVE</small></figcaption><canvas width="286" height="174" aria-label="${site.name}"></canvas></figure>`
+      ).join('')+'</div>'+btn('Exit cameras','camera-exit','outline'),{openedAt:now(),className:'security-console'});
+      if(state.tactical.cameras)drawSecurityFeeds(layer.querySelectorAll('canvas'),state);
+    }else if(res.ok)panel('monitor','Command telemetry','<ul class="mission-list">'+res.readings.map(([k,v])=>'<li><b>'+escape(k)+'</b><span>'+escape(v)+'</span></li>').join('')+'</ul>'+btn('Refresh','interact'));
     return;
   }
   await command(action.kind,action.data);
 }
+const hatchName=index=>vents[index].name||deck[vents[index].room].name;
 function showHatch(at){
-  if(at<0)return;
-  panel('vent','Service hatch','<p>Choose a connected hatch or return to the deck.</p><div class="targets">'+ventDestinations(at).map(i=>{return btn(deck[vents[i].room].name,'vent','outline','data-id="'+i+'"');}).join('')+btn('Exit hatch','exit-vent','primary')+'</div>');
+  panel('vent','Service hatch',`<h3>${hatchName(at)}</h3><p id="hatch-status" role="status">Hatch cycling</p>${deckCanvas(550,'map hatch-map')}<div class="targets">${ventDestinations(at).map(i=>btn(hatchName(i),'vent','outline','data-id="'+i+'" disabled')).join('')}${btn('Exit hatch','exit-vent','primary')}</div>`,
+    {index:at,openedAt:now(),className:'hatch-console'});
+  drawMap(layer.querySelector('canvas'),state,false,at);
+}
+function showMap(held=false){
+  panel('map','Meridian deck plan',deckCanvas(980)+'<div class="map-legend"><span>● Your position</span><span>● Assigned station</span><span>● Active repairs</span></div>',{held,className:'map-panel blue-map'});
+  document.getElementById('map-open').hidden=true;
+  layer.firstElementChild.insertAdjacentHTML('beforeend',mapButton('map-close'));
+  drawMap(layer.querySelector('canvas'),state);
 }
 async function suitChange(color){
   const me=state.self, locker=modal;
@@ -477,7 +567,7 @@ async function click(b){
   if(action==='settings')settingsPanel();
   if(action==='flight-settings'){
     const soundOn=localStorage.getItem('fayez-sound')!=='off';
-    panel('flight-settings','Flight settings',`<p>Move with WASD or the arrow keys. Use Space to interact and M to open the map.</p>
+    panel('flight-settings','Flight settings',`<p>Move with WASD or the arrow keys. Use Space to interact. Hold Tab to peek at the map or press M to toggle it.</p>
       <label class="sound-setting"><input type="checkbox" id="flight-sound" ${soundOn?'checked':''}> Game sounds</label>
       ${btn('Leave flight','leave','danger')}`);
   }
@@ -505,14 +595,21 @@ async function click(b){
   if(action==='practice-return')await command('practiceReturn');
   if(action==='map'&&s.phase==='play'){
     if(modal?.kind==='map'){closeModal(false);return;}
-    panel('map','Meridian deck plan',deckCanvas(980)+'<div class="map-legend"><span>● Your position</span><span>● Assigned station</span><span>● Active repairs</span></div>',{className:'map-panel blue-map'});
-    document.getElementById('map-open').hidden=true;
-    layer.firstElementChild.insertAdjacentHTML('beforeend',mapButton('map-close'));
-    drawMap(layer.querySelector('canvas'),state);
+    showMap();
   }
   if(action==='sabotage'&&s.phase==='play'&&(p.team==='impostor'||s.solo)){
-    panel('sabotage','Sabotage controls',`${deckCanvas(900,'map sabotage-map')}<p id="sabotage-status"></p><p class="sabotage-legend">Dashed lines show hatch links. Squares show bulkheads. L / C / O / R mark lights, comms, oxygen and reactor.</p><div class="targets">${Object.keys(repairs).map(k=>btn(k.toUpperCase(),'target-sabotage','danger','data-id="'+k+'"')).join('')}</div><label>Bulkhead<select id="door">${doors.map(d=>'<option value="'+d.id+'">'+escape(d.label)+'</option>').join('')}</select></label>${btn('Seal bulkhead','target-sabotage','outline','data-id="doors"')}`,{className:'map-panel'});
-    drawMap(layer.querySelector('canvas'),state,true);
+    panel('sabotage','Sabotage controls',`${deckCanvas(900,'map sabotage-map')}<p id="sabotage-status" role="status"></p><div class="targets sabotage-targets">${Object.keys(repairs).map(k=>btn(k.toUpperCase(),'target-sabotage','danger','data-id="'+k+'"')).join('')}</div><label>Bulkhead<select id="door">${doors.map(d=>'<option value="'+d.id+'">'+escape(d.label)+'</option>').join('')}</select></label>${btn('Seal bulkhead','target-sabotage','outline','data-id="doors"')}`,{className:'map-panel sabotage-console'});
+    const canvas=layer.querySelector('canvas');
+    drawMap(canvas,state,true);
+    refreshSabotage();
+    canvas.addEventListener('click',event=>{
+      const rect=canvas.getBoundingClientRect();
+      const point={x:(event.clientX-rect.left)*deckBounds.width/rect.width,y:(event.clientY-rect.top)*deckBounds.height/rect.height};
+      const system=Object.keys(repairs).find(kind=>repairs[kind].some(site=>dist(site,point)<26));
+      if(system){layer.querySelector(`[data-id="${system}"]`).click();return;}
+      const door=nearest(doors,point,26);
+      if(door){layer.querySelector('#door').value=door.id;refreshSabotage();}
+    });
   }
   if(action==='target-sabotage'&&(await command('sabotage',{kind:id,door:Number(document.querySelector('#door').value)})).ok)closeModal(false);
   if(action==='interact')await interact();
@@ -529,10 +626,12 @@ async function click(b){
     if(res.ok){notice('Ability activated.');setTimeout(()=>{if(modal?.kind==='ability')abilityPanel();},115);}
   }
   if(action==='strike'){
-    const q=nearest(s.positions.filter(q=>q.id!==p.id&&q.alive&&!p.allies.includes(q.id)&&!q.id.startsWith('echo-')),p,61);
+    const q=nearest(s.positions.filter(q=>q.id!==p.id&&q.alive&&!p.allies.includes(q.id)&&!q.id.startsWith('echo-')),p,s.settings.killDistance);
     if(q)await command('strike',{target:q.id});else notice('There is no target in range.');
   }
   if(action==='refresh-signals'&&(await command('ability',{refresh:true})).ok)setTimeout(()=>{if(modal?.kind==='ability')abilityPanel();},115);
+  if(action==='camera-exit')closeModal();
+  if(action==='use-hatch'&&canUseHatch(s,p))await performInteraction({kind:'vent'});
   if(action==='vent'&&(await command('vent',{dest:Number(id)})).ok)showHatch(Number(id));
   if(action==='exit-vent'&&(await command('vent',{action:'exit'})).ok)closeModal(false);
   if(action==='switch')await command('repair',{index:modal.station,a:Number(b.dataset.switch)});
@@ -563,6 +662,7 @@ document.addEventListener('click',e=>{
   void click(b);
 });
 document.addEventListener('change',e=>{
+  if(e.target.id==='door'&&modal?.kind==='sabotage')refreshSabotage();
   if(e.target.matches('#hat,#show-name'))void suitChange();
   if(e.target.matches('#flight-sound'))localStorage.setItem('fayez-sound',e.target.checked?'on':'off');
 });
@@ -573,9 +673,10 @@ document.addEventListener('submit',async e=>{
   if(form.id==='entry-form'){await enter(form);return;}
   const data=new FormData(form);
   if(form.id==='settings-form'){
-    const cfg=Object.fromEntries(Object.keys(numbers).map(k=>[k,Number(data.get(k))]));
-    for(const key of ['anonymous','confirm','early'])cfg[key]=data.has(key);
-    cfg.roles=Object.fromEntries(Object.keys(special).map(id=>[id,{enabled:data.has(id+':enabled'),...Object.fromEntries(['max','chance','cooldown','duration'].map(k=>[k,Number(data.get(id+':'+k))]))}]));
+    const cfg=Object.fromEntries(Object.keys(gameNumbers).map(k=>[k,Number(data.get(k))]));
+    cfg.taskBar=data.get('taskBar');
+    for(const key of Object.keys(gameChecks))cfg[key]=data.has(key);
+    cfg.roles=Object.fromEntries(Object.keys(special).map(id=>[id,{enabled:data.has(id+':enabled'),...Object.fromEntries(['max','chance',...roleFields(id)].map(k=>[k,Number(data.get(id+':'+k))]))}]));
     if((await command('settings',cfg)).ok){closeModal(false);notice('Lobby settings saved.');}
   }
   if(form.id==='chat-form'){
@@ -590,6 +691,10 @@ addEventListener('keydown',e=>{
   if(e.key==='Escape'&&modal){closeModal();return;}
   if(!state||e.target.closest?.('input,textarea,select,[contenteditable]')||e.ctrlKey||e.metaKey||e.altKey)return;
   const k=e.key.toLowerCase();
+  if(k==='tab'&&state.phase==='play'&&!modal&&!e.shiftKey&&!e.target.closest?.('button,a')){
+    e.preventDefault();if(!e.repeat)showMap(true);return;
+  }
+  if(k==='tab'&&modal?.kind==='map'&&modal.held){e.preventDefault();return;}
   if(directions[k]&&(!modal||modal.kind==='map')){held.add(k);e.preventDefault();if(!e.repeat)syncMovement();}
   if(k===' '&&!modal&&['play','lobby'].includes(state.phase)&&!e.target.closest?.('button')){
     e.preventDefault();if(!e.repeat)void interact();return;
@@ -599,10 +704,14 @@ addEventListener('keydown',e=>{
     const body=nearest(state.bodies,state.self,70);
     if(body)void command('report',{id:body.id});
   }
+  if(!modal&&k==='v'&&state.phase==='play'&&canUseHatch(state,state.self))void performInteraction({kind:'vent'});
   if(!modal&&k==='q'&&state.phase==='play'&&state.self.team==='impostor')void click({dataset:{do:'strike'}});
   if(k==='m'&&state.phase==='play'){if(modal?.kind==='map')closeModal();else if(!modal)void click({dataset:{do:'map'}});}
 });
-addEventListener('keyup',e=>{if(held.delete(e.key.toLowerCase()))syncMovement();});
+addEventListener('keyup',e=>{
+  if(e.key==='Tab'&&modal?.kind==='map'&&modal.held)closeModal(false);
+  if(held.delete(e.key.toLowerCase()))syncMovement();
+});
 addEventListener('blur',clearMovement);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)clearMovement();});
 document.addEventListener('pointerdown',e=>{

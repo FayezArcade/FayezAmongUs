@@ -4,7 +4,7 @@ import {mkdir} from 'node:fs/promises';
 import {setTimeout as wait} from 'node:timers/promises';
 import {chromium} from 'playwright-core';
 import {createGameServer} from '../server/index.js';
-import {deck,deckBounds,contains,dist,terminal,tasks,repairs,doors,playerRadius} from '../shared/deck.js';
+import {deck,deckBounds,contains,dist,terminal,tasks,repairs,doors,playerRadius,cameraSites,securityConsole,vents} from '../shared/deck.js';
 
 import {deckWaypoints} from './deck-route.mjs';
 
@@ -113,6 +113,7 @@ try {
   await host.page.keyboard.press('Escape');
   await get(host,'Settings').click();
   await host.page.getByLabel('Discussion (s)').fill('5');
+  await host.page.getByLabel('Emergency meetings').fill('2');
   await host.page.getByLabel('Voting (s)').fill('10');
   await host.page.getByLabel('Common tasks').fill('2');
   await host.page.getByLabel('Strike cooldown (s)').fill('10');
@@ -122,6 +123,7 @@ try {
   await phantom.getByLabel('Enabled').check();
   await phantom.getByLabel('Chance (%)').fill('100');
   await shot(host,'04-role-settings');
+  await host.page.getByLabel('Visual task effects').uncheck();
   await get(host,'Save settings').click();
   await get(host,'START').click();
   await until(()=>players.every(p=>p.s.phase==='reveal'),'Round starts on four browsers');
@@ -174,6 +176,11 @@ try {
   await operator.page.keyboard.press('m');
   await operator.page.getByRole('dialog',{name:'Meridian deck plan'}).waitFor();
   await operator.page.keyboard.press('m');
+  await operator.page.keyboard.down('Tab');
+  await operator.page.getByRole('dialog',{name:'Meridian deck plan'}).waitFor();
+  await shot(operator,'41-tab-map');
+  await operator.page.keyboard.up('Tab');
+  await operator.page.getByRole('dialog',{name:'Meridian deck plan'}).waitFor({state:'hidden'});
   const wire=tasks.find(t=>t.instrument==='wire'&&operator.s.self.assignments.some(a=>a.id===t.id));
   await navigate(operator,wire.stops[0]);
   await operator.page.locator('.space-action').filter({hasText:'Fix Wiring'}).waitFor();
@@ -227,6 +234,74 @@ try {
   for(const i of switches)await operator.page.locator('[data-switch="'+i+'"]').click();
   await until(()=>!operator.s.sabotage,'Repair restores lights');
   const [,victim,reporter]=crew;
+  const openRepair=async(p,kind)=>{
+    await until(()=>p.s.sabotage?.kind===kind&&p.s.sabotage.nearby.length,
+      p.name+' is within reach of '+kind);
+    await p.page.locator('.space-action').filter({hasText:'Repair '+kind}).click({timeout:3500});
+    await p.page.getByRole('dialog',{name:kind[0].toUpperCase()+kind.slice(1)+' recovery'}).waitFor({timeout:3500});
+  };
+  const alarm=async(kind)=>{
+    await advance(18200);
+    await get(infiltrator,'Sabotage').click();
+    await get(infiltrator,kind.toUpperCase()).click();
+    await until(()=>players.every(p=>p.s.sabotage?.kind===kind),'All receive '+kind);
+  };
+  await Promise.all([navigate(operator,securityConsole),navigate(victim,{x:cameraSites[0].x-44,y:cameraSites[0].y}),navigate(infiltrator,vents[1])]);
+  await operator.page.keyboard.press('Space');
+  const surveillance=operator.page.getByRole('dialog',{name:'Security surveillance'});
+  await surveillance.waitFor();
+  assert.equal(await surveillance.locator('canvas').count(),4);
+  await until(()=>operator.s.tactical.cameras?.[0].players.some(q=>q.color===victim.s.self.color),'Surveillance sees a real player');
+  assert.ok(players.filter(p=>p!==operator).every(p=>!p.s.tactical.cameras));
+  await until(()=>victim.s.cameraLights.includes(0),'Nearby viewer sees the active indicator');
+  const cameraImage=()=>surveillance.locator('canvas').first().evaluate(canvas=>canvas.toDataURL());
+  const imageBefore=await cameraImage();
+  await navigate(victim,{x:cameraSites[0].x+28,y:cameraSites[0].y});
+  await until(()=>operator.s.tactical.cameras?.[0].players.some(q=>q.color===victim.s.self.color&&q.x>cameraSites[0].x),'Surveillance sees movement');
+  assert.notEqual(await cameraImage(),imageBefore);
+  await shot(operator,'42-security-feeds');
+  await get(operator,'Exit cameras').click();
+  await until(()=>!operator.s.tactical.cameras&&!victim.s.cameraLights.includes(0),'Exit releases the feeds and indicator');
+  await operator.page.keyboard.press('Space');
+  await surveillance.waitFor();
+  await infiltrator.page.keyboard.press('v');
+  await infiltrator.page.getByRole('dialog',{name:'Service hatch'}).waitFor();
+  await until(()=>infiltrator.s.self.ventIndex===1,'V enters MedBay hatch');
+  assert.ok(operator.s.positions.every(q=>q.id!==infiltrator.s.self.id));
+  await shot(infiltrator,'43-vent-network');
+  await get(infiltrator,'Security').click();
+  await until(()=>infiltrator.s.self.ventIndex===3,'Travel to connected Security hatch');
+  await get(infiltrator,'Exit hatch').click();
+  await until(()=>infiltrator.s.self.ventIndex===null,'Exit hatch returns to the deck');
+
+  await alarm('comms');
+  await surveillance.waitFor({state:'hidden'});
+  assert.ok(!operator.s.tactical.cameras);
+  await navigate(reporter,repairs.comms[0]);
+  await openRepair(reporter,'comms');
+  await shot(reporter,'44-comms-repair');
+  await reporter.page.getByLabel('Receiver frequency').fill(String(reporter.s.sabotage.nearby[0].dial));
+  await get(reporter,'Lock frequency').click();
+  await until(()=>players.every(p=>!p.s.sabotage),'Comms repaired');
+
+  await Promise.all([navigate(victim,repairs.oxygen[0]),navigate(operator,repairs.oxygen[1])]);
+  await alarm('oxygen');
+  for(const p of [victim,operator]){
+    await openRepair(p,'oxygen');
+    if(p===victim)await shot(p,'45-oxygen-repair');
+    await p.page.getByLabel('Pressure code').fill(p.s.sabotage.nearby[0].code);
+    await get(p,'Restore pressure').click();
+  }
+  await until(()=>players.every(p=>!p.s.sabotage),'Two oxygen stations repaired');
+
+  await Promise.all([navigate(victim,repairs.reactor[0]),navigate(operator,repairs.reactor[1])]);
+  await alarm('reactor');
+  for(const p of [victim,operator])await openRepair(p,'reactor');
+  await get(victim,'Press relay pad').click();
+  await until(()=>operator.s.sabotage.fixed.length===1,'First reactor link reached all clients');
+  await shot(operator,'46-reactor-repair');
+  await get(operator,'Press relay pad').click();
+  await until(()=>players.every(p=>!p.s.sabotage),'Two people repaired Reactor');
   for(const p of [infiltrator,victim,reporter])await navigate(p,deck.cafe);
   // Keep the reporter and the intended target within strike/report range but apart.
   await navigate(reporter,{x:deck.cafe.x+84,y:deck.cafe.y});

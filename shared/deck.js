@@ -1,4 +1,4 @@
-export const deckRevision='meridian-5';
+export const deckRevision='meridian-6';
 export const playerScale=.67;
 export const playerRadius=9;
 export const emergencyRange=79;
@@ -121,9 +121,10 @@ export const furnishings=[
 export const vents=[
   at('nav',36,67),at('med',15,36),at('admin',-67,53),at('security',-27,24),
   at('electrical',-77,48),at('reactor',-32,57),at('lower',-45,35),
-  at('upper',-43,-23),at('cafe',132,10),at('weapons',25,-57),at('shields',27,42)
+  at('upper',-43,-23),at('cafe',132,10),at('weapons',25,-57),at('shields',27,42),
+  {x:851,y:553,room:'cafe',name:'Central hall'}
 ];
-export const ventConnections=[[0,9],[0,10],[1,3],[1,4],[2,8],[2,10],[3,4],[5,6],[5,7]];
+export const ventConnections=[[0,9],[0,10],[1,3],[1,4],[2,8],[2,11],[3,4],[5,6],[5,7],[8,11]];
 export const ventDestinations=index=>ventConnections.flatMap(([a,b])=>a===index?[b]:b===index?[a]:[]);
 export const lobbySeats=[-1,1].flatMap(side=>Array.from({length:5},(_,i)=>({
   x:450+side*(205-i*28),y:225-i*15,w:29,h:35,angle:side*(.65-i*.05)
@@ -203,9 +204,18 @@ export const tasks = [
   buildTask('nav','Stabilize Steering','short',[at('nav',42,-33)]),
   buildTask('reactor','Start Reactor','long',[at('reactor',-37,-40)]),
   buildTask('chart','Chart Course','short',[at('nav',-43,27)]),
-  ...vents.map((vent,i)=>buildTask(i===3?'clean':'clean-'+vent.room,'Clean Vent','short',[vent],'clean'))
+  ...vents.map((vent,i)=>buildTask(i===3?'clean':'clean-'+(vent.name?'central':vent.room),'Clean Vent','short',[vent],'clean'))
 ];
 export const repairs = {
   lights:[at('electrical',3,72)], comms:[at('comms',-37,-9)],
   oxygen:[at('oxygen',-35,-27),at('admin',44,24)], reactor:[at('reactor',25,-79),at('reactor',25,74)]
 };
+
+export const securityConsole=at('security',0,-27);
+export const securityRange=52;
+export const cameraSites=[
+  ['West passage',554,191,290,164],
+  ['Engineering junction',295,546,268,168],
+  ['Admin junction',872,597,256,156],
+  ['Navigation approach',1590,506,270,168]
+].map(([name,x,y,w,h])=>({name,x,y,w,h}));

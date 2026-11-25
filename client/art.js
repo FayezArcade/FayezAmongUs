@@ -1,4 +1,4 @@
-import {rooms,corridors,terrain,lobby,entrances,deckBounds,furnishings,diningTables,doors,vents,ventConnections,terminal,tasks,repairs,colors,lobbySeats,lobbyCrates,contains,meetingConsole,playerScale} from '../shared/deck.js';
+import {rooms,corridors,terrain,lobby,entrances,deckBounds,furnishings,diningTables,doors,vents,ventConnections,ventDestinations,cameraSites,securityConsole,terminal,tasks,repairs,colors,lobbySeats,lobbyCrates,contains,meetingConsole,playerScale} from '../shared/deck.js';
 
 function box(ctx,x,y,w,h,r,fill,stroke,line=1){
   ctx.beginPath();ctx.roundRect(x,y,w,h,r);
@@ -556,6 +556,11 @@ function buildScene(inLobby){
     text(ctx,caption,r.x,r.y+r.h/2-11,9,'#d7e7df','center');
   }
   for(const item of furnishings)furnish(ctx,item);
+  box(ctx,securityConsole.x-15,securityConsole.y-13,30,7,3,'#172d39','#5b878b',1.5);
+  for(const site of cameraSites){
+    box(ctx,site.x-12,site.y-19,16,9,2,'#789fa6','#1c353f',1.8);
+    box(ctx,site.x+2,site.y-16,6,3,1,'#1b3e4f');
+  }
   for(const v of vents){
     box(ctx,v.x-15,v.y-8,30,16,4,'#828d93','#262e36',2);
     for(let i=0;i<4;i++)box(ctx,v.x-10+i*6,v.y-5,2,10,1,'#454d54');
@@ -602,6 +607,9 @@ function sight(s){
     return [x+dx*(d+6),y+dy*(d+6)];
   });
 }
+function actorScale(p,serverTime){
+  return !reducedMotion.matches&&p.ventExitUntil?playerScale*(.32+.68*Math.max(0,1-(p.ventExitUntil-serverTime)/360)):playerScale;
+}
 export function renderer(canvas){
   const ctx=canvas.getContext('2d'), scenes=[deckArtwork(),buildScene(true)], tracks=new Map();
   const gateProgress=new Float32Array(doors.length);
@@ -646,6 +654,20 @@ export function renderer(canvas){
         gateProgress[d.id]=reducedMotion.matches?target:current+Math.sign(target-current)*delta;
         shutterLeaves(ctx,d,gateProgress[d.id]);
       }
+      for(const index of s.cameraLights){
+        const site=cameraSites[index];
+        circle(ctx,site.x-8,site.y-15,3,reducedMotion.matches||Math.floor(t/320)%2?'#fa8d7c':'#a35653','#462e37',1);
+      }
+      for(const effect of s.hatchEffects){
+        const at=vents[effect.index],progress=Math.max(0,Math.min(1,(s.now-effect.start)/520));
+        const travel=reducedMotion.matches?3:Math.sin(progress*Math.PI)*7;
+        box(ctx,at.x-13,at.y-6,26,12,2,'#203742','#14242d',1);
+        box(ctx,at.x-13,at.y-6-travel,26,7,2,'#9aafb5','#314653',1.3);
+        circle(ctx,at.x+8,at.y+3,2,effect.kind==='enter'?'#e7ba76':'#a9e1cf');
+        if(effect.kind==='enter'&&!reducedMotion.matches&&progress<.8){
+          astronaut(ctx,{x:at.x,y:at.y+4,color:effect.color,hat:effect.hat,alive:true,direction:'down'},t,playerScale*(1-progress));
+        }
+      }
       if(s.sabotage?.kind!=='comms')for(const a of s.self.assignments){
         if(a.done)continue;const q=tasks.find(v=>v.id===a.id).stops[a.stage];
         circle(ctx,q.x,q.y,7+Math.sin(t/230)*1.6,'#ffdc6575','#392e1d',1.3);
@@ -678,7 +700,7 @@ export function renderer(canvas){
     for(const p of positions.sort((a,b)=>a.y-b.y)){
       if(p.id===s.self.id){
         if(p.scanning)circle(ctx,p.x,p.y,16+Math.sin(t/95)*3,'#9ff1b268','#b7fbbf',2);
-        astronaut(ctx,p,t,playerScale);
+        astronaut(ctx,p,t,actorScale(p,s.now));
         continue;
       }
       let q=tracks.get(p.id);
@@ -687,7 +709,7 @@ export function renderer(canvas){
       const arrival=s.phase==='play'?Math.min(1,(t-q.seenAt)/170):1;
       ctx.save();ctx.globalAlpha=arrival;
       if(p.scanning)circle(ctx,q.x,q.y,16+Math.sin(t/95)*3,'#9ff1b268','#b7fbbf',2);
-      astronaut(ctx,{...p,x:q.x,y:q.y-(1-arrival)*5},t,playerScale);
+      astronaut(ctx,{...p,x:q.x,y:q.y-(1-arrival)*5},t,actorScale(p,s.now));
       ctx.restore();
     }
     if(!inLobby&&s.phase==='play'){
@@ -714,7 +736,7 @@ export function renderer(canvas){
     }
   };
 }
-export function drawMap(canvas,s,sabotage=false){
+export function drawMap(canvas,s,sabotage=false,hatch=null){
   const ctx=canvas.getContext('2d');
   ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.scale(canvas.width/deckBounds.width,canvas.height/deckBounds.height);
@@ -739,6 +761,17 @@ export function drawMap(canvas,s,sabotage=false){
       circle(ctx,q.x,q.y,11,s.sabotage?.kind===kind?'#fff0a7':'#ef9c9b','#4f2d3b',2);
       text(ctx,kind[0].toUpperCase(),q.x,q.y+4,11,'#fff8e9','center');
     }
+  }else if(hatch!==null){
+    const start=vents[hatch];
+    ctx.setLineDash([7,5]);
+    for(const index of ventDestinations(hatch)){
+      const target=vents[index];
+      ctx.beginPath();ctx.moveTo(start.x,start.y);ctx.lineTo(target.x,target.y);
+      ctx.strokeStyle='#b3dcd3';ctx.lineWidth=4;ctx.stroke();
+      circle(ctx,target.x,target.y,13,'#6196a0','#ddede1',3);
+    }
+    ctx.setLineDash([]);
+    circle(ctx,start.x,start.y,22,'#2d5e63','#9af2d3',4);
   }else{
     for(const id of s.doors){
       const d=doors[id];
@@ -754,6 +787,24 @@ export function drawMap(canvas,s,sabotage=false){
   if(s.tactical.track)circle(ctx,s.tactical.track.x,s.tactical.track.y,12,'#b593cc','#4b365c',2);
   circle(ctx,s.self.x,s.self.y,11,'#183348','#d9fff2',2);
   circle(ctx,s.self.x,s.self.y,5,'#8ff2cd');
+}
+export function drawSecurityFeeds(canvases,s){
+  const frame=s.tactical.cameras;
+  for(const [index,canvas] of [...canvases].entries()){
+    const site=cameraSites[index],data=frame[index],ctx=canvas.getContext('2d');
+    const {width,height}=canvas, zoom=Math.min(width/site.w,height/site.h);
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.fillStyle='#10202b';ctx.fillRect(0,0,width,height);
+    ctx.save();ctx.translate(width/2,height/2);ctx.scale(zoom,zoom);ctx.translate(-site.x,-site.y);
+    ctx.beginPath();ctx.rect(site.x-site.w/2,site.y-site.h/2,site.w,site.h);ctx.clip();
+    ctx.drawImage(deckArtwork(),0,0);
+    for(const id of s.doors)shutterLeaves(ctx,doors[id],1);
+    for(const body of data.bodies)box(ctx,body.x-11,body.y-5,22,12,5,colors[body.color],'#273140',2);
+    for(const player of data.players)astronaut(ctx,player,s.now,playerScale);
+    ctx.restore();
+    ctx.fillStyle='#c5ffe910';
+    for(let y=3;y<height;y+=5)ctx.fillRect(0,y,width,1);
+  }
 }
 export function drawDeckOverview(canvas){
   const ctx=canvas.getContext('2d');
