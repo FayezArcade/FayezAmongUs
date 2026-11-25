@@ -208,6 +208,8 @@ try {
   await get(operator,'Map').click();
   assert.equal(await stationMarker(operator,badge),true);
   await operator.page.keyboard.press('Escape');
+  await navigate(operator,badge);
+  await operator.page.locator('.space-action').filter({hasText:'Swipe Card'}).waitFor();
   await operator.page.keyboard.press('Space');
   await operator.page.getByRole('dialog',{name:'Swipe Card'}).waitFor();
   await shot(operator,'09-badge-task');

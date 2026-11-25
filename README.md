@@ -19,7 +19,7 @@ Open the URL Vite prints. The dev server runs the relay on the same origin. On a
 2. Friends select **JOIN ROOM**, enter their nicknames and enter that code.
 3. Move with **WASD** or **arrow keys**. Approach the GEAR terminal and use **Space** to choose a unique color and equipment. Touch devices have a directional pad and an on-screen action.
 4. The captain can start a solo test with one player or a normal flight with four to ten connected players. Two and three players can share the lobby while waiting.
-5. **Space** uses the centered action for nearby stations, repairs, hatches, the emergency console and reportable incidents. **M** or the top-right **Map** button toggles the deck plan. Infiltrators can use **Q** to attempt a nearby elimination. The **Chat** tab is available during meetings.
+5. **Space** uses the centered action for nearby stations, repairs, hatches, the emergency console and reportable incidents. Hold **Tab** to peek at the deck plan, or toggle it with **M** or the **Map** button. Use **V** near a hatch if your role can enter it. Infiltrators can use **Q** to attempt a nearby elimination. The **Chat** tab is available during meetings.
 6. The captain can re-dock after the result. Share the same room code for the next flight.
 
 ## Solo testing
@@ -54,6 +54,7 @@ To serve a built client locally with the standalone relay, run `npm run build` a
 - [Character design and color order](docs/CHARACTERS.md)
 - [Deck, meetings, and character scale comparisons](docs/MERIDIAN-DECK.md)
 - [Expanded Meridian deck, room references, and gameplay captures](docs/MERIDIAN-EXPANSION.md)
+- [Sabotage, Security, and multiplayer playtest screenshots](docs/GAMEPLAY-SYSTEMS.md)
 - [Skeld task audit and genuine source links](docs/SKELD_TASK_REFERENCE_AUDIT.md)
 - [Earlier match screenshots](docs/screenshots/)
 
