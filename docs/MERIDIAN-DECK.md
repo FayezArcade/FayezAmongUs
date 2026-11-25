@@ -1,5 +1,7 @@
 # Meridian deck overhaul
 
+The [room and hallway expansion](MERIDIAN-EXPANSION.md) records the current deck dimensions, new collision model, and before-and-after captures.
+
 Meridian is Fayez Crew’s original ship. The supplied Skeld plan informed the broad engineering, cargo, and navigation routes. The 14 room footprints, 22 room thresholds, and 13 sabotage shutters share world coordinates with movement, the physical view and the blue map. [The Skeld reference map][skeld]
 
 - The western Cafeteria hall connects Upper Engine and a terminal MedBay spur. The north–south engine spine joins the two engines, with Reactor and Security opposite each other at its midpoint. Electrical is a spur off the Lower Engine–Storage hall.

@@ -53,6 +53,7 @@ To serve a built client locally with the standalone relay, run `npm run build` a
 - [Dropship update and screenshots](docs/DROPSHIP_UPDATE.md)
 - [Character design and color order](docs/CHARACTERS.md)
 - [Deck, meetings, and character scale comparisons](docs/MERIDIAN-DECK.md)
+- [Expanded Meridian deck, room references, and gameplay captures](docs/MERIDIAN-EXPANSION.md)
 - [Skeld task audit and genuine source links](docs/SKELD_TASK_REFERENCE_AUDIT.md)
 - [Earlier match screenshots](docs/screenshots/)
 
