@@ -19,9 +19,9 @@ async function until(fn,limit=6500){
   }
   assert.fail('Expected state transition timed out.');
 }
-async function fixture(t,count=4){
+async function fixture(t,count=4,options={}){
   let jump=0;
-  const server=createGameServer({now:()=>Date.now()+jump});
+  const server=createGameServer({now:()=>Date.now()+jump,...options});
   server.server.listen(0,'127.0.0.1');await once(server.server,'listening');
   const root='http://127.0.0.1:'+server.server.address().port;
   const peers=[];
@@ -42,6 +42,7 @@ async function fixture(t,count=4){
   const advance=async millis=>{jump+=millis;await wait(105);};
   return {players,host,session,connect,advance};
 }
+const prioritizeTask=id=>families=>families.sort((a,b)=>Number(b.some(task=>task.id===id))-Number(a.some(task=>task.id===id)));
 async function drive(p,x,y){
   const start=Date.now();
   while(Date.now()-start<6200){
@@ -284,8 +285,8 @@ test('a closed bulkhead blocks movement on every client and reopens on the serve
 });
 
 test('the sample analyzer keeps its countdown after cancel and reopening',{timeout:15000},async t=>{
-  const {host,players,advance}=await fixture(t);
-  assert.ok((await host.act('settings',{speed:240,longTasks:5})).ok);
+  const {host,players,advance}=await fixture(t,4,{orderTasks:prioritizeTask('sample')});
+  assert.ok((await host.act('settings',{speed:240,longTasks:1})).ok);
   assert.ok((await host.act('start')).ok);
   await advance(3100);
   await advance(3500);
@@ -364,15 +365,16 @@ test('host values govern movement, vision, assignments and strike distance acros
 });
 
 test('visual scanner cues follow the host setting for nearby crewmates',{timeout:28000},async t=>{
-  const {host,players,advance}=await fixture(t);
+  const {host,players,advance}=await fixture(t,4,{orderTasks:prioritizeTask('scan')});
   const scan=tasks.find(task=>task.id==='scan').stops[0];
   for(const visualTasks of [false,true]){
-    assert.ok((await host.act('settings',{visualTasks,speed:240,longTasks:5})).ok);
+    assert.ok((await host.act('settings',{visualTasks,speed:240,longTasks:1})).ok);
     assert.ok((await host.act('start')).ok);
     await advance(3100);await advance(3500);
     const [worker,observer]=players.filter(p=>p.s.self.team==='crew');
     await Promise.all([navigate(worker,scan),navigate(observer,scan)]);
-    assert.ok((await worker.act('taskOpen',{id:'scan'})).ok);
+    const opened=await worker.act('taskOpen',{id:'scan'});
+    assert.ok(opened.ok,opened.error);
     assert.ok((await worker.act('taskStep',{type:'begin'})).ok);
     await until(()=>Number.isFinite(worker.s.puzzle?.hold)&&observer.s.positions.some(p=>p.id===worker.s.self.id&&p.scanning===visualTasks));
     await advance(1600);

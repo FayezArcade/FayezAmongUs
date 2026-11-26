@@ -28,9 +28,8 @@ for(const task of tasks){
   if(!pool.has(family))pool.set(family,[]);
   pool.get(family).push(task);
 }
-const drawTasks=(kind,count)=>randomOrder([...taskPools[kind].values()]).slice(0,count).map(variants=>variants[randomInt(variants.length)]);
-
-export function attach(io,{now=Date.now,maxRooms=250}={}) {
+export function attach(io,{now=Date.now,maxRooms=250,orderTasks=randomOrder}={}) {
+  const drawTasks=(kind,count)=>orderTasks([...taskPools[kind].values()]).slice(0,count).map(variants=>variants[randomInt(variants.length)]);
   const roomsByCode=new Map();
   const bound=new Map();
   function reset(r) {
