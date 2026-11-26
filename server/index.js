@@ -3,6 +3,7 @@ import {readFile,stat} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {Server} from 'socket.io';
+import {gameTitle} from '../shared/settings.js';
 import {deckRevision} from '../shared/deck.js';
 import {attach} from './game.js';
 
@@ -13,7 +14,7 @@ export function createGameServer({origins=process.env.CORS_ORIGIN,serve=process.
   const server=createServer(async(req,res)=>{
     const url=new URL(req.url,'http://localhost');
     if(url.pathname==='/health'){
-      res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'}).end(JSON.stringify({ok:true,game:'Fayez Crew',deck:deckRevision}));
+      res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'}).end(JSON.stringify({ok:true,game:gameTitle,deck:deckRevision}));
       return;
     }
     if(serve&&req.method==='GET'){
@@ -40,6 +41,6 @@ export function createGameServer({origins=process.env.CORS_ORIGIN,serve=process.
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   const game=createGameServer();
-  game.server.listen(Number(process.env.PORT)||3001,'0.0.0.0',()=>console.log('Fayez Crew relay is ready.'));
+  game.server.listen(Number(process.env.PORT)||3001,'0.0.0.0',()=>console.log(`${gameTitle} relay is ready.`));
   process.on('SIGTERM',()=>game.close());
 }

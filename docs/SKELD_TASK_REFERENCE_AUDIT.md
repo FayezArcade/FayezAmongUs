@@ -1,6 +1,6 @@
 # The Skeld task reference audit
 
-The supplied overhead plan and gameplay stills were used for routes and scale. The task table links to genuine gameplay frames published by BlueStacks, MobyGames, and the community, with Innersloth’s own notes for the later vent update. The supplied YouTube video could not be opened for playback, so it was not used to assign timestamps or identify map sections. The short, task-specific recordings are supplementary references. Fayez Crew renders its own ship, suits, consoles, and controls. [BlueStacks illustrated walkthrough][bluestacks] · [MobyGames gallery][moby] · [The Skeld task index][index]
+The supplied overhead plan and gameplay stills were used for routes and scale. The task table links to genuine gameplay frames published by BlueStacks, MobyGames, and the community, with Innersloth’s own notes for the later vent update. The supplied YouTube video could not be opened for playback, so it was not used to assign timestamps or identify map sections. The short, task-specific recordings are supplementary references. Fayez Among Us renders its own ship, suits, consoles, and controls. [BlueStacks illustrated walkthrough][bluestacks] · [MobyGames gallery][moby] · [The Skeld task index][index]
 
 ## Task and stage references
 
@@ -30,12 +30,12 @@ A visual task has an effect that another player can see in The Skeld when the or
 | Prime Shields | In Shields, activate the unlit segments until all are on. The external shield lights illuminate. | 1 | Yes. Shield lights are visible. | [Shield panel screenshot][shields] · [External lights screenshots][visual] |
 | Clean Vent | At an assigned vent, select each piece of debris until the grate is clean. Innersloth added the task in version 2021.6.30. | 1 | No regular visual confirmation. Cleaning may displace a vent occupant in Among Us. | [Skeld cleaning clip, publisher chapter 7:03][vent-video] · [Innersloth patch notes][vent] |
 
-## Fayez Crew behavior
+## Fayez Among Us behavior
 
 - Task stations and their map markers come from the shared deck file. Wiring draws one of three authored routes covering all six reference rooms. The randomly assigned task family is common to the room, and each subsequent location is unlocked by the previous panel.
 - The five download origins share an Admin upload terminal. The eight receiving relays share an Electrical start. The task list and Space prompt show the current stage name. Fuel follows Storage → Upper Engine → Storage → Lower Engine. The two waste routes share the Storage outlet.
-- Inspect Sample has five tubes and a 12-second first analysis. Its server countdown survives closing the panel, walking away, interrupted communications, and meetings. Data takes 2.7 seconds per station. Weapons requires three tracked hits. Scan uses a held control. These durations and counts are tuned for Fayez Crew’s shorter rounds.
-- Crew-visible effects include the scanner ring, cannon flashes, shield lights, and final waste ejection. Clean Vent uses Fayez Crew’s existing hatch network. It blocks new entry and travel to the assigned hatch while the panel is being serviced.
+- Inspect Sample has five tubes and a 12-second first analysis. Its server countdown survives closing the panel, walking away, interrupted communications, and meetings. Data takes 2.7 seconds per station. Weapons requires three tracked hits. Scan uses a held control. These durations and counts are tuned for Fayez Among Us’s shorter rounds.
+- Crew-visible effects include the scanner ring, cannon flashes, shield lights, and final waste ejection. Clean Vent uses Fayez Among Us’s existing hatch network. It blocks new entry and travel to the assigned hatch while the panel is being serviced.
 - Mouse, touch, and keyboard controls share the same server validation. Wiring supports drag and select-pair. Course plotting supports drag and ordered taps. Filter cleaning supports dragging to the exhaust and assisted taps. The server checks proximity, order, timing, current stage, and communications. A canceled foreground instrument restarts its current stage. Previous visits stay recorded. Ghosts can work on crew assignments, and impostor cover work earns no team credit.
 
 [bluestacks]: https://www.bluestacks.com/blog/game-guides/among-us/au-skeld-task-guide-en.html

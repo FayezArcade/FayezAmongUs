@@ -1,4 +1,4 @@
-name: Publish Fayez Crew
+name: Publish Fayez Among Us
 on:
   workflow_dispatch:
   push:
@@ -39,7 +39,7 @@ jobs:
           ready=false
           for attempt in {1..15}; do
             if health="$(curl --max-time 12 --fail --silent --show-error "${VITE_SERVER_URL%/}/health")" &&
-              printf '%s' "$health" | jq -e --arg deck "$expected" '.ok and .game == "Fayez Crew" and .deck == $deck' >/dev/null; then
+              printf '%s' "$health" | jq -e --arg deck "$expected" '.ok and .game == "Fayez Among Us" and .deck == $deck' >/dev/null; then
               ready=true
               break
             fi

@@ -1,4 +1,4 @@
-export const deckRevision='meridian-7';
+export const deckRevision='meridian-8';
 export const playerScale=.67;
 export const playerRadius=9;
 export const emergencyRange=79;
@@ -32,6 +32,7 @@ export const rooms = [
   ['lower','Lower Engine',299,916,248,200,38,'engine']
 ].map(([id,name,x,y,w,h,chamfer,prop])=>({id,name,x,y,w,h,chamfer,prop}));
 export const deck=Object.fromEntries(rooms.map(room=>[room.id,room]));
+deck.electrical.outline=[[-113,-107],[104,-107],[136,-82],[136,-27],[72,16],[72,85],[58,107],[-70,107],[-104,85],[-104,21],[-136,-6],[-136,-81]];
 
 const outlets=[];
 function port(room,side,shift=0){
@@ -102,25 +103,18 @@ export const diningTables=[
 ].map(([x,y,radius])=>({...at('cafe',x,y),radius}));
 
 export const furnishings=[
-  ['cafe','service',-103,-110,44,22],['cafe','service',103,-110,44,22],
-  ['upper','maintenance',-75,-51,39,27],['lower','maintenance',-74,61,45,27],
-  ['reactor','capacitors',-63,58,24,41],
-  ['security','screens',-1,-61,108,26],['security','server',63,41,25,41],
-  ['med','bed',-60,-45,42,29],['med','bed',-60,2,42,29],['med','bed',-60,49,42,29],
-  ['med','service',60,-41,36,25],
-  ['electrical','server',-98,-54,30,47],['electrical','capacitors',101,42,32,46],
+  ['electrical','server',-112,-57,22,52],['electrical','capacitors',-74,48,23,44],
+  ['security','screens',-1,-61,108,26],
+  ['med','bed',-60,-43,42,29],['med','bed',-60,41,42,29],
   ['storage','crate',-87,-84,56,44],['storage','crate',86,-78,58,48],
-  ['storage','crate',94,75,55,45],['storage','crate',-103,9,50,38],['storage','cargo-rack',-66,96,78,26],
-  ['admin','service',64,-53,46,29],['admin','server',62,54,40,28],
-  ['weapons','maintenance',59,-58,46,34],['weapons','service',-59,54,41,26],
-  ['oxygen','capacitors',52,45,49,32],['oxygen','service',-52,-50,41,22],
-  ['nav','screens',34,-65,101,25],['nav','server',66,46,30,39],
-  ['shields','capacitors',73,38,30,56],['shields','maintenance',-63,-50,41,26],
-  ['comms','server',-65,-41,41,37],['comms','screens',56,38,61,27]
+  ['storage','cargo-rack',-79,96,66,26],
+  ['admin','server',74,55,35,26],['weapons','maintenance',62,-60,36,25],
+  ['oxygen','capacitors',60,53,36,24],['nav','screens',34,-65,101,25],
+  ['shields','capacitors',80,48,23,45],['comms','server',-77,-38,24,31]
 ].map(([room,kind,x,y,w,h])=>({...at(room,x,y),kind,w,h}));
 export const vents=[
   at('nav',36,67),at('med',15,36),at('admin',-67,53),at('security',-27,24),
-  at('electrical',-77,48),at('reactor',-32,57),at('lower',-45,35),
+  at('electrical',-108,5),at('reactor',-32,57),at('lower',-45,35),
   at('upper',-43,-23),at('cafe',132,10),at('weapons',25,-57),at('shields',27,42),
   {x:851,y:553,room:'cafe',name:'Central hall'}
 ];
@@ -140,6 +134,16 @@ export const spawn = (i,inLobby) => {
   return {x:meetingPoint.x+x,y:meetingPoint.y+y};
 };
 export function contains(rect,x,y,margin=0){
+  if(rect.outline){
+    const dx=x-rect.x,dy=y-rect.y;
+    if(Math.abs(dx)>rect.w/2||Math.abs(dy)>rect.h/2)return false;
+    let inside=false;
+    for(const [i,[ax,ay]] of rect.outline.entries()){
+      const [bx,by]=rect.outline[(i+1)%rect.outline.length];
+      if((ay>dy)!==(by>dy)&&dx<(bx-ax)*(dy-ay)/(by-ay)+ax)inside=!inside;
+    }
+    return inside;
+  }
   const dx=Math.abs(rect.x-x),dy=Math.abs(rect.y-y);
   const halfW=rect.w/2-margin,halfH=rect.h/2-margin;
   return dx<=halfW&&dy<=halfH&&(!rect.chamfer||dx+dy<=halfW+halfH-rect.chamfer);
@@ -168,8 +172,8 @@ export function clearDeckLine(a,b,blocked=[]){
   return true;
 }
 export const dist = (a,b) => Math.hypot(a.x-b.x,a.y-b.y);
-export const taskRange = id => id==='calibrate'||id==='clean-electrical'?38:57;
-const upload=at('admin',-51,-33), power=at('electrical',56,-47);
+export const taskRange = (id,stop) => stop?.room==='electrical'?30:id==='calibrate'||id==='clean-electrical'?38:57;
+const upload=at('admin',-51,-33), power=at('electrical',84,-54);
 const disposal=at('storage',106,38), pump=at('storage',-68,50);
 const buildTask=(id,label,kind,stops,instrument=id)=>({id,label,kind,stops,instrument});
 export function taskStageName(task,stage){
@@ -186,7 +190,7 @@ export const tasks = [
   buildTask('dataNav','Transfer Data · Navigation','short',[at('nav',-42,-33),upload],'data'),
   buildTask('dataCafe','Transfer Data · Cafeteria','short',[at('cafe',164,-3),upload],'data'),
   buildTask('dataComms','Transfer Data · Communications','short',[at('comms',39,-32),upload],'data'),
-  buildTask('dataElectrical','Transfer Data · Electrical','short',[at('electrical',48,37),upload],'data'),
+  buildTask('dataElectrical','Transfer Data · Electrical','short',[at('electrical',37,21),upload],'data'),
   buildTask('route','Divert Power · Shields','short',[power,at('shields',-43,-18)]),
   ...[['oxygen','O2'],['upper','Upper Engine'],['lower','Lower Engine'],['comms','Communications'],['nav','Navigation'],['weapons','Weapons'],['security','Security']].map(([room,label])=>
     buildTask('route-'+room,'Divert Power · '+label,'short',[power,at(room,-37,29)],'route')),
@@ -197,7 +201,7 @@ export const tasks = [
   buildTask('waste','Empty Garbage','long',[at('cafe',170,94),disposal]),
   buildTask('chute','Empty Chute','long',[at('oxygen',33,14),disposal],'waste'),
   buildTask('fuel','Fuel Engines','long',[pump,at('upper',43,26),pump,at('lower',-45,-31)]),
-  buildTask('calibrate','Calibrate Distributor','short',[at('electrical',7,-32)]),
+  buildTask('calibrate','Calibrate Distributor','short',[at('electrical',15,-67)]),
   buildTask('filter','Clean O2 Filter','short',[at('oxygen',35,-29)]),
   buildTask('sample','Inspect Sample','long',[at('med',31,-41)]),
   buildTask('sequence','Unlock Manifolds','short',[at('reactor',36,-39)]),

@@ -1,4 +1,4 @@
-# Fayez Crew visual guide
+# Fayez Among Us visual guide
 
 This guide describes an earlier visual pass. See the [PC handoff](PC_HANDOFF.md) for the current clean suit, 18-color palette and interface requirements.
 

@@ -12,6 +12,7 @@
     "build": "vite build",
     "test": "node --test test/*.test.js",
     "test:browser": "node test/browser.mjs",
+    "test:neutrals": "node test/neutrals.mjs",
     "test:instruments": "node test/instruments.mjs"
   },
   "dependencies": {

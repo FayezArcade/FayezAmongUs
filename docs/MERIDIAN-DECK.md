@@ -2,7 +2,7 @@
 
 The [room and hallway expansion](MERIDIAN-EXPANSION.md) records the current deck dimensions, new collision model, and before-and-after captures.
 
-Meridian is Fayez Crew’s original ship. The supplied Skeld plan informed the broad engineering, cargo, and navigation routes. The 14 room footprints, 22 room thresholds, and 13 sabotage shutters share world coordinates with movement, the physical view and the blue map. [The Skeld reference map][skeld]
+Meridian is Fayez Among Us’s original ship. The supplied Skeld plan informed the broad engineering, cargo, and navigation routes. The 14 room footprints, 22 room thresholds, and 13 sabotage shutters share world coordinates with movement, the physical view and the blue map. [The Skeld reference map][skeld]
 
 - The western Cafeteria hall connects Upper Engine and a terminal MedBay spur. The north–south engine spine joins the two engines, with Reactor and Security opposite each other at its midpoint. Electrical is a spur off the Lower Engine–Storage hall.
 - The central Cafeteria trunk reaches both the Admin spur and Storage. The south hall connects Storage to Shields and branches into Communications. Weapons opens to the eastern trunk, with O2 as a side room and Navigation and Shields reached from the lower junction.
@@ -16,7 +16,7 @@ Meridian is Fayez Crew’s original ship. The supplied Skeld plan informed the b
 
 Approximate silhouette measurements exclude hats, names, benches, and wall trim. Source screenshots have different resolutions, so the comparisons use ratios rather than literal pixels. Fayez figures are world units at the same camera scale.
 
-| Comparison | Among Us reference | Earlier Fayez Crew | Current Fayez Crew |
+| Comparison | Among Us reference | Earlier Fayez Among Us | Current Fayez Among Us |
 | --- | --- | --- | --- |
 | Suit height / central Cafeteria table | 39 / 125 in the wide view, about 31% | 51 / 64, about 80% | 34 / 112, about 30% |
 | Suit height / satellite Cafeteria table | About 40 / 126, or 32% | 34 / 42–46, about 74–81% | 34 / 78–84, about 40–44% |
@@ -28,7 +28,7 @@ Approximate silhouette measurements exclude hats, names, benches, and wall trim.
 
 Meridian keeps the clean, rounded suit silhouette, the 0.67 world drawing scale, a nine-unit movement radius, and a camera zoom cap of 1.52 from the earlier character correction. This pass grew the satellite tables, Reactor machinery, and Electrical wall cabinet bank. Nicknames remain screen-readable and the movement speeds and interaction distances retain the prior world units. Meridian’s doors and satellite tables have their own proportions.
 
-| Authentic gameplay reference | Fayez Crew |
+| Authentic gameplay reference | Fayez Among Us |
 | --- | --- |
 | ![Among Us Cafeteria and tables][cafeteria] | ![Meridian Cafeteria and tables](screenshots/passage-hud/scale-cafeteria.jpg) |
 | ![Among Us Weapons corridor][corridor] | ![Meridian Weapons corridor](screenshots/passage-hud/scale-corridor.jpg) |

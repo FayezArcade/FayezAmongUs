@@ -1,6 +1,6 @@
 # Character overhaul
 
-The supplied 18-suit reference set the color order, the compact outline, the broad blue glass, the small packs and the short separated boots. Fayez Crew's original suit uses a beveled inset viewport, a clean front, shaded boots and an offset rectangular service pack. The north-facing pose exposes a plain rounded backpack.
+The supplied 18-suit reference set the color order, the compact outline, the broad blue glass, the small packs and the short separated boots. Fayez Among Us's original suit uses a beveled inset viewport, a clean front, shaded boots and an offset rectangular service pack. The north-facing pose exposes a plain rounded backpack.
 
 | Row | Colors |
 | --- | --- |

@@ -6,7 +6,7 @@ The classic ship creates alibis with rooms, short corridors, alternate routes an
 
 The official gameplay page includes gameplay imagery and embedded video. The available source also included a classic Skeld gameplay listing. Full-motion playback and sound-by-sound review were unavailable in this research pass. Published imagery was used as a reference source only. [Classic Skeld footage listing](https://www.youtube.com/watch?v=UUTm92aU68g)
 
-## Fayez Crew implementation
+## Fayez Among Us implementation
 
 A compact two-action menu leads to a walkable salvage shuttle. Color and gear are applied while players move in shared space. The original Meridian ship is a transit grid with a central Hub, an outlying Atmos station and a U-shaped route to the industrial deck. Doors and bulkheads control line of sight, while service hatches shorten cross-deck trips. Each equipment bay has a recognizable prop silhouette and accent.
 
@@ -16,7 +16,7 @@ Captain and crew language, original equipment panels, cyan/amber flight instrume
 
 The primary sources are Innersloth announcements for the main desktop/mobile/console game. Spawn rates, ability timing and several limits are lobby configuration. Universal timing defaults for the current build were unavailable in the official announcements.
 
-| Role | Official Classic behavior | Fayez Crew rule |
+| Role | Official Classic behavior | Fayez Among Us rule |
 | --- | --- | --- |
 | Crewmate | Maintain the ship, report incidents, discuss and vote. | Receives shared common assignments and randomized station assignments. |
 | Impostor | Blend in, eliminate at close range, vent and sabotage. | Receives cover tasks. The server gates range, team, line of sight and cooldown. |
@@ -40,6 +40,6 @@ Sources by feature generation. [2021 roles](https://www.innersloth.com/new-roles
 
 The Skeld groups main movement around a central Cafeteria with longer routes through engines and the industrial side of the ship. Admin provides counts, Security provides camera views, and Electrical, Navigation and Storage create destinations with different sightlines and traffic. Vent circuits skip walks through some corridors. Doors briefly break routes. Lights constrain crew sight. Comms interrupt task and monitoring information. Oxygen and Reactor have time-limited recovery, and a reported body clears the critical emergency. The emergency button is limited and unavailable during an active system failure. Meetings separate discussion from a timed ballot, allow abstaining via Skip and can end without a removal through a tie. [Official beginner guide](https://innersloth.zendesk.com/hc/en-us/articles/7794240573460-Beginner-s-Guide-to-Among-Us) · [Skeld gameplay captures](https://www.mobygames.com/game/149316/among-us/screenshots/) · [Innersloth settings notes](https://www.innersloth.com/a-match-made-in-update-16-0-0-emergency-meeting-40/)
 
-The Skeld task catalogue includes card and wires; data transfer, power divert, calibration, course plotting, intake and vent cleaning, asteroid targeting, shields, steering and manifolds; and engine alignment, waste, fueling, sample inspection, reactor and med scan. Community sources differentiate the release-era list and later additions such as vent cleaning. Each Fayez Crew task uses its own stations, art and thresholds. The game retains long-task station credit through meetings. [Skeld task index](https://among-us.fandom.com/wiki/Category%3AThe_Skeld_tasks) · [Illustrated task guide](https://www.bluestacks.com/blog/game-guides/among-us/au-skeld-task-guide-en.html) · [Task playthrough index](https://www.youtube.com/watch?v=VDLy2jI2_9A)
+The Skeld task catalogue includes card and wires; data transfer, power divert, calibration, course plotting, intake and vent cleaning, asteroid targeting, shields, steering and manifolds; and engine alignment, waste, fueling, sample inspection, reactor and med scan. Community sources differentiate the release-era list and later additions such as vent cleaning. Each Fayez Among Us task uses its own stations, art and thresholds. The game retains long-task station credit through meetings. [Skeld task index](https://among-us.fandom.com/wiki/Category%3AThe_Skeld_tasks) · [Illustrated task guide](https://www.bluestacks.com/blog/game-guides/among-us/au-skeld-task-guide-en.html) · [Task playthrough index](https://www.youtube.com/watch?v=VDLy2jI2_9A)
 
 The visual review used official itch.io screenshots and sampled footage from Innersloth's Steam release trailer. [Visual comparison](docs/VISUAL_COMPARISON.md) · [Innersloth itch.io page](https://innersloth.itch.io/among-us) · [Official Steam listing](https://store.steampowered.com/app/945360/Among_Us/)

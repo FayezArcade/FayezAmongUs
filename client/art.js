@@ -139,6 +139,7 @@ const floors={
   core:['#65617b','#76718b','stripe'],dish:['#5d6f73','#73858a','rib'],shuttle:['#687079','#79818a','cargo']
 };
 function hull(r,extra=0){
+  if(r.outline)return r.outline.map(([x,y])=>[r.x+x*(1+extra/(r.w/2)),r.y+y*(1+extra/(r.h/2))]);
   const a=r.x-r.w/2-extra,b=r.x+r.w/2+extra,c=r.y-r.h/2-extra,d=r.y+r.h/2+extra,k=(r.chamfer||14)+extra/2;
   return [[a+k,c],[b-k,c],[b,c+k],[b,d-k],[b-k,d],[a+k,d],[a,d-k],[a,c+k]];
 }
@@ -279,22 +280,17 @@ function roomProp(ctx,r){
     }
     consoleBox(ctx,-26,21,53,24,'#b8e7a9');
   }else if(prop==='power'){
-    plate(-82,-63,164,26,'#555853');
-    for(const [i,offset] of [-76,-50,-24,2,28,54].entries()){
-      box(ctx,offset,-60,22,19,2,i===3?'#878660':'#6c7471','#292e30',1.2);
-      box(ctx,offset+3,-55,16,6,1,i%2===0?'#b1a474':'#93a796');
-      screws(ctx,[[offset+4,-44],[offset+18,-44]]);
+    polygon(ctx,[[-65,-90],[105,-90],[119,-72],[119,-35],[75,-9],[-66,-9]],'#797563','#3e4544',2);
+    plate(-76,-92,187,29,'#555853');
+    for(const [i,offset] of [-68,-39,-10,19,48,77].entries()){
+      box(ctx,offset,-87,24,19,2,i===3?'#878660':'#6c7471','#292e30',1.2);
+      box(ctx,offset+3,-82,18,6,1,i%2===0?'#b1a474':'#93a796');
+      screws(ctx,[[offset+4,-71],[offset+20,-71]]);
     }
-    for(let i=-1;i<=1;i++){
-      const x=i*43;
-      plate(x-13,-24,26,44,'#596369');
-      for(let j=0;j<3;j++){
-        box(ctx,x-8,-17+j*9,16,6,2,'#333f48');
-        circle(ctx,x+4,-14+j*9,1.6,j===i+1?'#a8e6bb':'#d9ae75');
-      }
-    }
-    for(let i=0;i<4;i++){
-      ctx.beginPath();ctx.moveTo(-50+i*35,21);ctx.bezierCurveTo(-45+i*25,39,18-i*20,43,13+i*15,51);
+    plate(-47,34,26,26,'#5a6260');
+    box(ctx,-43,38,18,10,1,'#d2b46f','#2d383a',1);
+    for(let i=0;i<3;i++){
+      ctx.beginPath();ctx.moveTo(-52+i*25,-63);ctx.bezierCurveTo(52+i*5,-40,-64+i*12,-18,-33+i*6,32);
       ctx.lineWidth=4;ctx.strokeStyle='#333944';ctx.stroke();ctx.lineWidth=2;
       ctx.strokeStyle=['#d28d6c','#829bbd','#dec37d','#96bfaa'][i];ctx.stroke();
     }
@@ -681,6 +677,10 @@ export function renderer(canvas){
         box(ctx,b.x-16+(b.decay||0)*3,b.y-7,32-(b.decay||0)*6,15,7,colors[b.color],'#292a2b',2.5);
         box(ctx,b.x+4,b.y-6,10,8,4,'#8ab2bb','#28384a',1.4);ctx.restore();
       }
+      for(const q of s.tactical.remains||[])if(Math.hypot(q.x-s.self.x,q.y-s.self.y)<s.vision){
+        circle(ctx,q.x,q.y,8,'#61426f','#e6bafd',2);
+        text(ctx,'+',q.x,q.y+4,12,'#fff0ff','center');
+      }
       for(const a of s.alerts)circle(ctx,a.x,a.y,16+Math.sin(t/100)*3,'#e67e6470','#e5a796',2);
       for(const e of s.taskEffects){
         if(e.kind==='shield'){
@@ -736,6 +736,13 @@ export function renderer(canvas){
     }
   };
 }
+const sabotageSymbols={
+  lights:'M2 -8 -5 1 H-1 L-2 8 5 -2 H1Z',
+  comms:'M-7 -3 Q0 -9 7 -3 M-5 0 Q0 -5 5 0 M-3 3 Q0 0 3 3 M0 6h.1',
+  oxygen:'M-2 -4 C-8 -4 -8 4 -2 4 C3 4 3 -4 -2 -4Z M3 3q1 -3 3 -2t-2 5h4',
+  reactor:'M0 -7 -7 6H7Z M0 -3v4m0 2h.1'
+};
+const mapSymbols=Object.fromEntries(Object.entries(sabotageSymbols).map(([key,value])=>[key,new Path2D(value)]));
 export function drawMap(canvas,s,sabotage=false,hatch=null){
   const ctx=canvas.getContext('2d');
   ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -758,8 +765,8 @@ export function drawMap(canvas,s,sabotage=false,hatch=null){
     for(const v of vents)box(ctx,v.x-7,v.y-4,14,8,2,'#f0b77d','#3d2b36',2);
     for(const q of doors)box(ctx,q.x-5,q.y-5,10,10,2,s.doors.includes(q.id)?'#ffdf98':'#d7959e','#603d52',1);
     for(const [kind,points] of Object.entries(repairs))for(const q of points){
-      circle(ctx,q.x,q.y,11,s.sabotage?.kind===kind?'#fff0a7':'#ef9c9b','#4f2d3b',2);
-      text(ctx,kind[0].toUpperCase(),q.x,q.y+4,11,'#fff8e9','center');
+      circle(ctx,q.x,q.y,13,s.sabotage?.kind===kind?'#ffeea7':'#e8aa9e','#4f2d3b',2.7);
+      ctx.save();ctx.translate(q.x,q.y);ctx.strokeStyle='#3b2532';ctx.lineWidth=1.8;ctx.lineCap='round';ctx.lineJoin='round';ctx.stroke(mapSymbols[kind]);ctx.restore();
     }
   }else if(hatch!==null){
     const start=vents[hatch];
@@ -785,6 +792,7 @@ export function drawMap(canvas,s,sabotage=false,hatch=null){
     if(s.sabotage)for(const q of repairs[s.sabotage.kind])circle(ctx,q.x,q.y,12,'#e47770','#4f2d2b',2);
   }
   if(s.tactical.track)circle(ctx,s.tactical.track.x,s.tactical.track.y,12,'#b593cc','#4b365c',2);
+  if(!sabotage&&hatch===null)for(const q of s.tactical.remains||[])circle(ctx,q.x,q.y,10,'#cfa5f6','#4b365c',2);
   circle(ctx,s.self.x,s.self.y,11,'#183348','#d9fff2',2);
   circle(ctx,s.self.x,s.self.y,5,'#8ff2cd');
 }

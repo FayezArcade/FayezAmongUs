@@ -1,4 +1,4 @@
-name: Verify Fayez Crew
+name: Verify Fayez Among Us
 on:
   push:
   pull_request:

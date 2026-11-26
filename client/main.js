@@ -1,10 +1,11 @@
 import {io} from 'socket.io-client';
 import {colors,suitPalette,hats,rooms,deckRevision,deck,deckBounds,doors,vents,ventDestinations,tasks,taskRange,taskStageName,repairs,terminal,meetingPoint,emergencyRange,securityConsole,securityRange,cameraSites,contains,clearDeckLine,dist} from '../shared/deck.js';
-import {gameNumbers,gameChecks,taskBars,requiredPlayers} from '../shared/settings.js';
-import {special} from '../shared/roles.js';
+import {gameNumbers,gameChecks,taskBars,requiredPlayers,gameDefaults} from '../shared/settings.js';
+import {special,roleFields,roleNumbers,roleChoices,defaultRoles,remainsRange} from '../shared/roles.js';
 import {astronaut,renderer,drawMap,drawSecurityFeeds,suitPortrait} from './art.js';
 import {taskPanel} from './tasks.js';
 import {movement} from './movement.js';
+import {actionIcon} from './icons.js';
 import './style.css';
 import './flight.css';
 
@@ -16,6 +17,7 @@ const socket=io(relay||location.origin,{autoConnect:false,reconnectionDelayMax:2
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clock=(end,t)=>Math.ceil(Math.max(0,end-t)/1000).toString().padStart(2,'0');
 const nearest=(items,p,range)=>items.filter(q=>dist(p,q)<range).sort((a,b)=>dist(p,a)-dist(p,b))[0];
+const killTarget=(s,p)=>nearest(s.positions.filter(q=>q.id!==p.id&&q.alive&&!p.allies.includes(q.id)&&!q.id.startsWith('echo-')),p,s.settings.killDistance);
 const btn=(label,cmd,style='',attrs='')=>`<button type="button" class="${style}" data-do="${cmd}" ${attrs}>${label}</button>`;
 function markup(id,html){
   const el=document.getElementById(id);
@@ -30,12 +32,14 @@ const glyph=(name)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
   map:'<path d="m3 5 6-2 6 3 6-2v15l-6 2-6-3-6 2zM9 3v15m6-12v15"/>',
   radio:'<path d="M4 6h16v10h-9l-4 4v-4H4zM8 10h8m-8 3h5"/>'
 }[name]}</svg>`;
-const roleName=p=>special[p.alive?p.role:p.ghost]?.name||(p.alive?p.team==='impostor'?'Infiltrator':'Crewmate':p.team==='impostor'?'Infiltrator Ghost':'Crew Ghost');
+const teamName={crew:'Crewmate',impostor:'Impostor',neutral:'Neutral'};
+const roleName=p=>p.alive?(special[p.role]?.name||teamName[p.team]||'Crewmate'):(special[p.ghost]?.name||`${special[p.role]?.team==='neutral'?special[p.role].name:teamName[p.team]} Ghost`);
+const collectionText=p=>`${p.objective.done} / ${p.objective.goal} collected`;
 
 let selectedVote=null,submittedVote=null,votePending=false,meetingTab='ballot',chatSeen=0;
-const mapButton=id=>btn(glyph('map'),'map','map-toggle',
+const mapButton=id=>btn(actionIcon('map'),'map','map-toggle',
   'id="'+id+'" aria-label="Map" title="Map [M or hold Tab]" aria-expanded="'+(id==='map-open'?'false':'true')+'"');
-const promptButton=action=>action?btn('<kbd>SPACE</kbd> '+escape(action.label),'interact','space-action'):'';
+const promptButton=action=>action?btn(actionIcon(({suit:'customize',report:'report',vent:'vent',monitor:action.data==='security'?'security':'admin'})[action.kind]||'use')+'<kbd>SPACE</kbd> '+escape(action.label),'interact','space-action'):'';
 
 let state=null,session=null,joining=false,entry=null,modal=null,phase='',skew=0,noticeTimer,wasReady=false,uiKey='',audio;
 const held=new Set(), touch=new Set(), muted=new Set();
@@ -90,11 +94,11 @@ function modalShell(kicker,title,body,classes=''){
   layer.innerHTML=`<div class="scrim"><section class="panel ${classes}" role="dialog" aria-modal="true" aria-label="${escape(title)}"><button type="button" class="close" data-do="close" aria-label="Close">×</button><div class="eyebrow">${kicker}</div><h2>${escape(title)}</h2>${body}</section></div>`;
 }
 function home() {
-  screen.innerHTML=`<main class="home classic-menu"><div class="flight-brand"><div class="flight-insignia" aria-hidden="true">${glyph('launch')}</div><h1>FAYEZ <em>CREW</em></h1><div class="home-buttons">${btn(glyph('launch')+'<span>CREATE ROOM</span>','create','outline')}${btn(glyph('join')+'<span>JOIN ROOM</span>','join','outline')}</div></div></main>`;
+  screen.innerHTML=`<main class="home classic-menu"><div class="flight-brand"><div class="flight-insignia" aria-hidden="true">${glyph('launch')}</div><h1>Fayez <em>Among Us</em></h1><div class="home-buttons">${btn(glyph('launch')+'<span>CREATE ROOM</span>','create','outline')}${btn(glyph('join')+'<span>JOIN ROOM</span>','join','outline')}</div></div></main>`;
 }
 function entryForm(kind){
   entry=kind;modal={kind:'entry'};
-  modalShell('PRIVATE FLIGHT',kind==='create'?'Create room':'Join room',`<form id="entry-form"><label>Nickname<input name="name" required maxlength="18" value="${escape(nickname())}" autocomplete="nickname" placeholder="Your call sign"></label>${kind==='join'?'<label>Room code<input name="code" required minlength="6" maxlength="6" placeholder="ABC123" autocomplete="off" class="code-input"></label>':''}<button class="primary" type="submit">${kind==='create'?'Create room':'Join room'}</button><p id="entry-status" class="feedback" role="status"></p></form>`,'entry-panel');
+  modalShell('PRIVATE MATCH',kind==='create'?'Create room':'Join room',`<form id="entry-form"><label>Nickname<input name="name" required maxlength="18" value="${escape(nickname())}" autocomplete="nickname" placeholder="Your call sign"></label>${kind==='join'?'<label>Room code<input name="code" required minlength="6" maxlength="6" placeholder="ABC123" autocomplete="off" class="code-input"></label>':''}<button class="primary" type="submit">${kind==='create'?'Create room':'Join room'}</button><p id="entry-status" class="feedback" role="status"></p></form>`,'entry-panel');
   const input=layer.querySelector('input');
   if(kind==='create'&&input.value.trim())input.form.requestSubmit();
   else input.focus();
@@ -112,7 +116,7 @@ async function enter(form){
   if(joining)return;
   joining=true;const data=new FormData(form),name=String(data.get('name')||'').trim(),code=String(data.get('code')||'').toUpperCase();
   const error=form.querySelector('#entry-status');form.querySelector('button[type=submit]').disabled=true;
-  error.textContent='Contacting the crew relay. A cold start can take a moment.';
+  error.textContent='Connecting to the Fayez Among Us server…';
   try{
     if(!await awaitConnection())throw new Error('Relay unavailable. Try again in a moment.');
     if(modal?.kind!=='entry')return;
@@ -130,7 +134,7 @@ async function enter(form){
 socket.on('connect',async()=>{
   if(!session)return;
   const reply=await send('enter',{kind:'resume',...session});
-  if(reply.ok&&reply.deck===deckRevision){notice(wasReady?'Flight connection restored.':'');wasReady=true;}
+  if(reply.ok&&reply.deck===deckRevision){notice(wasReady?'Connection restored.':'');wasReady=true;}
   else if(socket.connected){session=null;state=null;phase='';sessionStorage.removeItem('fayez-session');closeModal();home();notice(reply.error||'The relay is updating to this deck version. Try again shortly.');}
 });
 socket.on('disconnect',()=>{
@@ -171,29 +175,29 @@ function closeModal(cancel=true) {
   }
 }
 function panel(kind,title,body,options={}){
-  modal={kind,...options};modalShell('MERIDIAN FLIGHT SYSTEMS',title,body,options.className||'');
+  modal={kind,...options};modalShell('MERIDIAN',title,body,options.className||'');
 }
 function chatForm() {
-  return '<div class="messages" id="messages" aria-live="polite"></div><form id="chat-form" class="chat-form"><input name="text" maxlength="180" placeholder="Send to the intercom" aria-label="Chat message" autocomplete="off" required><button class="primary">Send</button></form>';
+  return '<div class="messages" id="messages" aria-live="polite"></div><form id="chat-form" class="chat-form"><input name="text" maxlength="180" placeholder="Send a message" aria-label="Chat message" autocomplete="off" required><button class="primary">Send</button></form>';
 }
 function hud(){
   const s=state, me=s.self, inLobby=s.phase==='lobby', captain=s.host===me.id;
   const roleText=roleName(me).toUpperCase();
   screen.innerHTML=`<main class="hud ${inLobby?'dropship-hud':''}">${inLobby?`
-    <aside class="lobby-summary"><h2>Flight settings</h2><div id="lobby-settings"></div>${captain?btn(glyph('settings')+' Settings','settings','outline'):''}</aside>
+    <aside class="lobby-summary"><h2>Game Settings</h2><div id="lobby-settings"></div>${captain?btn(actionIcon('settings')+' Settings','settings','outline'):''}</aside>
     <aside class="lobby-roster"><h2>On board</h2><div class="side-info" id="side-info"></div></aside>
-    <div class="lobby-actions actions">${btn('Leave','leave','quiet')}</div>
+    <div class="lobby-actions actions">${btn(actionIcon('quit')+' Quit','leave','quiet')}</div>
     <div class="boarding">
-      ${captain?btn('START','start','start-launch','id="start-flight"'):''}
+      ${captain?btn(actionIcon('start')+' START','start','start-launch','id="start-flight"'):''}
       <p class="launch-hint" id="launch-hint"></p>
       <div class="boarding-code">
         <button type="button" class="room-code" data-do="copy" title="Copy room code"><small>ROOM CODE</small><strong id="room-code"></strong></button>
         <button type="button" data-do="copy" class="outline copy-code">COPY CODE</button>
         <div class="count"><small>PLAYER COUNT</small><strong id="crew-count"></strong></div>
       </div>
-    </div>`:`<aside class="deck-brief"><div class="flight-data"><div class="bar"><small>CREW TASKS <span id="task-count"></span></small><progress max="1" value="0" id="task-progress"></progress></div></div><div id="side-info"></div></aside><div class="flight-tools">${mapButton('map-open')}${btn(glyph('settings'),'flight-settings','flight-options','aria-label="Settings" title="Settings"')}</div><div class="location"><span id="current-room"></span></div><div class="role-label">${roleText}</div>`}
+    </div>`:`<aside class="deck-brief"><div class="flight-data"><div class="bar"><small>CREW TASKS <span id="task-count"></span></small><progress max="1" value="0" id="task-progress"></progress></div></div><div id="side-info"></div></aside><div class="flight-tools">${mapButton('map-open')}${btn(actionIcon('settings'),'flight-settings','flight-options','aria-label="Settings" title="Settings"')}</div><div class="location"><span id="current-room"></span></div><div class="role-label">${roleText}</div>`}
     <div class="alert" id="emergency" hidden></div>
-  <footer class="controls"><div class="controls-hint"><span>WASD / ↑↓←→</span> Move <span>SPACE</span> Use</div>${inLobby?'':`<div class="actions">${me.team==='impostor'&&me.alive?btn('Eliminate','strike','danger','id="strike-action"'):''}${me.team==='impostor'?btn('Sabotage','sabotage','danger'):''}${me.alive&&(me.team==='impostor'||me.role==='engineer')?btn('Vent [V]','use-hatch','outline','id="vent-action" hidden'):''}${me.role||me.ghost?btn('Ability','ability'):''}</div>`}</footer><div class="touch" aria-label="Movement controls">${[['up','↑'],['left','←'],['down','↓'],['right','→']].map(([d,label])=>`<button type="button" data-move="${d}" aria-label="Move ${d}">${label}</button>`).join('')}</div><div class="prompt" id="prompt"></div></main>`;
+  <footer class="controls"><div class="controls-hint"><span>WASD / ↑↓←→</span> Move <span>SPACE</span> Use</div>${inLobby?'':`<div class="actions">${me.team==='impostor'&&me.alive?btn(actionIcon('kill')+' <span id="strike-label">Kill</span>','strike','danger','id="strike-action"'):''}${me.team==='impostor'?btn(actionIcon('sabotage')+' Sabotage','sabotage','danger'):''}${me.alive&&(me.team==='impostor'||me.role==='engineer')?btn(actionIcon('vent')+' Vent [V]','use-hatch','outline','id="vent-action" hidden'):''}${me.role||me.ghost?btn('Ability','ability'):''}</div>`}</footer><div class="touch" aria-label="Movement controls">${[['up','↑'],['left','←'],['down','↓'],['right','→']].map(([d,label])=>`<button type="button" data-move="${d}" aria-label="Move ${d}">${label}</button>`).join('')}</div><div class="prompt" id="prompt"></div></main>`;
 }
 function canUseHatch(s,p){
   return p.alive&&(Number.isInteger(p.ventIndex)||now()>=(p.ventAt||0)&&
@@ -202,25 +206,27 @@ function canUseHatch(s,p){
 }
 function contextAction(p=state.self){
   const s=state;
-  if(s.phase==='lobby')return dist(p,terminal)<76?{label:'Open suit locker',kind:'suit'}:null;
+  if(s.phase==='lobby')return dist(p,terminal)<76?{label:'Customize',kind:'suit'}:null;
   if(s.phase!=='play')return null;
-  if(Number.isInteger(p.ventIndex))return {label:'Open hatch controls',kind:'vent'};
+  if(Number.isInteger(p.ventIndex))return {label:'Vent Controls',kind:'vent'};
   const line=point=>!p.alive||clearDeckLine(p,point,s.doors);
   const b=p.alive&&nearest(s.bodies.filter(line),p,70);
-  if(b)return {label:'Report incident',kind:'report',data:{id:b.id}};
+  if(b)return {label:'Report',kind:'report',data:{id:b.id}};
   if(s.sabotage?.nearby.length)return {label:'Repair '+s.sabotage.kind,kind:'repair'};
+  const collection=p.alive&&p.role==='vulture'&&now()>=p.abilityAt&&nearest((s.tactical.remains||[]).filter(line),p,remainsRange);
+  if(collection)return {label:'Collect remains',kind:'collect',data:{id:collection.id}};
   const security=p.alive&&dist(p,securityConsole)<securityRange&&line(securityConsole)&&s.sabotage?.kind!=='comms';
-  if(security&&dist(p,securityConsole)<22)return {label:'Watch Security cameras',kind:'monitor',data:'security'};
+  if(security&&dist(p,securityConsole)<22)return {label:'Security Cameras',kind:'monitor',data:'security'};
   const available=p.assignments.filter(a=>!a.done).map(a=>{
     const task=tasks.find(t=>t.id===a.id);
     return {...task.stops[a.stage],id:a.id,label:taskStageName(task,a.stage)};
   });
-  const a=nearest(available.filter(q=>dist(p,q)<taskRange(q.id)&&line(q)),p,57);
+  const a=nearest(available.filter(q=>dist(p,q)<taskRange(q.id,q)&&line(q)),p,57);
   if(a&&s.sabotage?.kind!=='comms')return {label:a.label,kind:'task',data:a.id};
-  if(canUseHatch(s,p))return {label:'Use service hatch',kind:'vent'};
-  if(p.alive&&dist(p,meetingPoint)<emergencyRange&&line(meetingPoint)&&p.emergencies>0&&!s.sabotage&&now()>p.meetingAt)return {label:'Call emergency assembly',kind:'emergency'};
-  if(p.alive&&dist(p,deck.admin)<85&&line(deck.admin)&&s.sabotage?.kind!=='comms')return {label:'View command telemetry',kind:'monitor',data:'command'};
-  if(security)return {label:'Watch Security cameras',kind:'monitor',data:'security'};
+  if(canUseHatch(s,p))return {label:'Vent',kind:'vent'};
+  if(p.alive&&dist(p,meetingPoint)<emergencyRange&&line(meetingPoint)&&p.emergencies>0&&!s.sabotage&&now()>p.meetingAt)return {label:'Emergency Meeting',kind:'emergency'};
+  if(p.alive&&dist(p,deck.admin)<85&&line(deck.admin)&&s.sabotage?.kind!=='comms')return {label:'Admin Map',kind:'monitor',data:'command'};
+  if(security)return {label:'Security Cameras',kind:'monitor',data:'security'};
   return null;
 }
 function update(){
@@ -241,8 +247,8 @@ function update(){
       start.disabled=count<minimum;
       document.querySelector('#launch-hint').textContent=count<minimum?`Waiting for at least ${minimum} players`:'';
     }
-    markup('lobby-settings',`<dl><div><dt>Map</dt><dd>Meridian</dd></div><div><dt>Infiltrators</dt><dd>${settings.impostors}</dd></div><div><dt>Discussion</dt><dd>${settings.discussion}s</dd></div><div><dt>Voting</dt><dd>${settings.voting}s</dd></div><div><dt>Tasks per player</dt><dd>${taskTotal(settings)}</dd></div><div><dt>Common / Long / Short</dt><dd>${settings.commonTasks} / ${settings.longTasks} / ${settings.shortTasks}</dd></div></dl>`);
-    markup('side-info',s.roster.map(q=>`<div>${tag(q.color)}${escape(q.name)}${q.id===s.host?' <span>CAPTAIN</span>':''}${!q.online?' <span>OFFLINE</span>':''}</div>`).join(''));
+    markup('lobby-settings',`<dl><div><dt>Map</dt><dd>Meridian</dd></div><div><dt>Impostors</dt><dd>${settings.impostors}</dd></div><div><dt>Discussion</dt><dd>${settings.discussion}s</dd></div><div><dt>Voting</dt><dd>${settings.voting}s</dd></div><div><dt>Tasks per player</dt><dd>${taskTotal(settings)}</dd></div><div><dt>Common / Long / Short</dt><dd>${settings.commonTasks} / ${settings.longTasks} / ${settings.shortTasks}</dd></div></dl>`);
+    markup('side-info',s.roster.map(q=>`<div>${tag(q.color)}${escape(q.name)}${q.id===s.host?' <span>HOST</span>':''}${!q.online?' <span>OFFLINE</span>':''}</div>`).join(''));
     markup('prompt',promptButton(contextAction(motion.position()||p)));
   }
   if(s.phase==='countdown')document.querySelector('#countdown-number').textContent=Math.max(1,Math.ceil((s.until-now())/1000));
@@ -260,11 +266,16 @@ function update(){
         return '<li><span>'+escape(taskStageName(task,a.stage))+'</span><small>'+escape(stop.name||deck[stop.room].name)+(task.stops.length>1?' · '+(a.stage+1)+'/'+task.stops.length:'')+'</small></li>';
       }).join('')||'<li>Assignments complete</li>';
     document.querySelector('#current-room').textContent=current;
-    markup('side-info',`<div class="task-brief">${btn(p.team==='impostor'?'Cover tasks':'Tasks','tasks','quiet')}<ul>${stationList}</ul></div>`);
+    const privateObjective=p.role==='vulture'?`<small>${collectionText(p)}${p.alive&&now()<p.abilityAt?' · Ready in '+clock(p.abilityAt,now())+'s':''}</small>`:'<small>Get voted out during a meeting</small>';
+    markup('side-info',p.team==='neutral'?`<div class="task-brief neutral-objective">${privateObjective}</div>`:`<div class="task-brief">${btn(p.team==='impostor'?'Fake Tasks':'Tasks','tasks','quiet')}<ul>${stationList}</ul></div>`);
     const ventButton=document.getElementById('vent-action');
     if(ventButton)ventButton.hidden=!canUseHatch(s,p);
     const strike=document.getElementById('strike-action');
-    if(strike){strike.disabled=now()<p.killAt;strike.textContent=strike.disabled?'Eliminate '+clock(p.killAt,now())+'s':'Eliminate [Q]';}
+    if(strike){
+      const cooling=now()<p.killAt;
+      strike.disabled=cooling||p.ventIndex!==null||!killTarget(s,p);
+      strike.querySelector('#strike-label').textContent=cooling?'Kill · '+clock(p.killAt,now())+'s':'Kill [Q]';
+    }
     const danger=document.querySelector('#emergency');danger.hidden=!s.sabotage;
     if(s.sabotage)danger.textContent=s.sabotage.kind.toUpperCase()+' FAILURE'+(s.sabotage.until?' · '+clock(s.sabotage.until,now())+'s':' · Find a repair station');
     markup('prompt',promptButton(contextAction(motion.position()||p)));
@@ -297,7 +308,7 @@ function update(){
     else{
       const wait=Math.max(0,(p.ventAt||0)-now());
       const timer=p.team==='crew'?clock(p.effectUntil,now()):null;
-      layer.querySelector('#hatch-status').textContent=(timer!==null?'Engineer air reserve · '+timer+'s':'Concealed in the service network')+(wait?' · Hatch cycling':'');
+      layer.querySelector('#hatch-status').textContent=(timer!==null?'Engineer air reserve · '+timer+'s':'Inside a vent')+(wait?' · Vent cooldown':'');
       for(const b of layer.querySelectorAll('[data-do=vent]'))b.disabled=Boolean(wait);
       drawMap(layer.querySelector('canvas'),s,false,modal.index);
     }
@@ -312,17 +323,18 @@ function cinemaSuit(canvas,p){
 function cinematic(){
   const s=state,p=s.self;
   if(s.phase==='countdown'){
-    screen.innerHTML=`<main class="launch-countdown"><div>PRIVATE FLIGHT</div><h1 id="countdown-number"></h1><p>Launching</p></main>`;
+    screen.innerHTML=`<main class="launch-countdown"><div>PRIVATE MATCH</div><h1 id="countdown-number"></h1><p>Launching</p></main>`;
   }else if(s.phase==='reveal'){
     const role=p.role&&special[p.role];
-    screen.innerHTML=`<main class="cinema reveal ${p.team==='impostor'?'red':''}"><div class="eyebrow">PRIVATE ROLE · FLIGHT ${s.round}</div><canvas class="role-portrait" width="220" height="145"></canvas><h1>${escape(roleName(p))}</h1><p>${escape(role?.description||(p.team==='impostor'?'Disrupt the ship. Blend in with the crew.':'Restore the ship. Watch your crewmates.'))}</p>${p.allies.length>1?'<p class="muted">Allies · '+s.roster.filter(q=>q.id!==p.id&&p.allies.includes(q.id)).map(q=>escape(q.name)).join(', ')+'</p>':''}</main>`;
+    const description=role?.description||(p.team==='impostor'?'Blend in, sabotage the ship, and eliminate the other players.':'Complete your tasks and vote out the Impostors.');
+    screen.innerHTML=`<main class="cinema reveal ${p.team==='impostor'?'red':p.team==='neutral'?'neutral':''}"><div class="eyebrow">${p.team==='neutral'?'NEUTRAL OBJECTIVE':'PRIVATE ROLE'} · MATCH ${s.round}</div><canvas class="role-portrait" width="220" height="145"></canvas><h1>${escape(roleName(p))}</h1><p>${escape(description)}</p>${p.objective?'<p class="muted">Goal · '+p.objective.goal+' reported '+(p.objective.goal===1?'site':'sites')+'</p>':''}${p.allies.length>1?'<p class="muted">Allies · '+s.roster.filter(q=>q.id!==p.id&&p.allies.includes(q.id)).map(q=>escape(q.name)).join(', ')+'</p>':''}</main>`;
     cinemaSuit(screen.querySelector('canvas'),p);
   }else if(s.phase==='meeting'){
     const m=s.meeting, caller=s.roster.find(q=>q.id===m.caller);
     const report=m.kind==='report';
-    const byline=(report?'Reported by ':'Called by ')+ (caller?.name||'Crew');
+    const byline=(report?'Reported by ':'Called by ')+ (caller?.name||'Crewmate');
     if(s.now<m.introUntil){
-      const title=report?'Body reported':'Emergency meeting';
+      const title=report?'Body Reported':'Emergency Meeting';
       const illustration=report?
         `<div class="incident-beacon"><span aria-hidden="true">!</span>${portrait(m.incident?.color||caller?.color,0,false)}</div>`:
         '<div class="intercom-switch"><i></i><b></b></div>';
@@ -331,9 +343,9 @@ function cinematic(){
       <div class="assembly-illustration">${portrait(caller?.color,caller?.hat,true)}${illustration}</div><div class="assembly-stripes"></div></main>`;
     }else{
       screen.innerHTML=`<main class="meeting tablet-meeting"><div class="tablet-frame"><div class="tablet-screen">
-      <header><div class="meeting-heading"><h1>Crew assembly</h1>
+      <header><div class="meeting-heading"><h1>Emergency Meeting</h1>
       <div class="meeting-tabs" aria-label="Meeting views">
-        ${btn('Ballot','meeting-tab','outline','data-id="ballot" id="meeting-ballot-button" aria-controls="meeting-ballot"')}
+        ${btn('Voting','meeting-tab','outline','data-id="ballot" id="meeting-ballot-button" aria-controls="meeting-ballot"')}
         ${btn(glyph('radio')+' Chat <span id="unread-chat" hidden></span>','meeting-tab','outline','data-id="chat" id="meeting-chat-button" aria-controls="meeting-chat"')}</div></div>
       <p class="meeting-caller">${escape(byline)}</p><p id="meeting-time"></p><progress id="meeting-task-progress" aria-label="Crew task progress" max="1" hidden></progress></header>
       <div class="meeting-views"><section id="meeting-ballot"><div id="ballot" class="ballot-grid"></div><div id="ballot-controls"></div></section>
@@ -341,11 +353,13 @@ function cinematic(){
     }
   }else if(s.phase==='verdict'){
     const v=s.meeting.result;
-    screen.innerHTML=`<main class="cinema verdict ${v.target?'red':''}"><div class="eyebrow">BALLOT COMPLETE</div>${v.target?'<canvas class="eject" width="220" height="145"></canvas>':'<div class="airlock-icon">◈</div>'}<h1>${v.target?escape(v.target.name)+' ejected':v.tie?'Ballot tied':v.counts.skip?'Crew skipped the vote':'No ballots submitted'}</h1>${v.override?'<p>Judge override</p>':''}<p>${v.target?v.role?(v.role==='impostor'?'An infiltrator was removed.':'A crewmate was removed.'):'Ejection confirmation is off.':'Nobody was ejected.'}</p><div class="verdict-votes">${Object.entries(v.counts).map(([id,n])=>`<span>${id==='skip'?'Skip':escape(s.roster.find(p=>p.id===id)?.name)} · ${n}</span>`).join('')}</div>${v.votes?`<div class="verdict-votes">${v.votes.map(([from,to])=>`<span>${escape(s.roster.find(q=>q.id===from)?.name)} voted ${to==='skip'?'Skip':escape(s.roster.find(q=>q.id===to)?.name)}</span>`).join('')}</div>`:''}</main>`;
+    screen.innerHTML=`<main class="cinema verdict ${v.target?'red':''}"><div class="eyebrow">VOTING RESULTS</div>${v.target?'<canvas class="eject" width="220" height="145"></canvas>':'<div class="airlock-icon">◈</div>'}<h1>${v.target?escape(v.target.name)+' ejected':v.tie?'Vote tied':v.counts.skip?'Skipped vote':'No votes submitted'}</h1>${v.override?'<p>Judge override</p>':''}<p>${v.target?v.role?`${escape(v.target.name)} was ${v.role==='neutral'?'Neutral':v.role==='impostor'?'an Impostor':'a Crewmate'}.`:'Ejection confirmation is off.':'Nobody was ejected.'}</p><div class="verdict-votes">${Object.entries(v.counts).map(([id,n])=>`<span>${id==='skip'?'Skip':escape(s.roster.find(p=>p.id===id)?.name)} · ${n}</span>`).join('')}</div>${v.votes?`<div class="verdict-votes">${v.votes.map(([from,to])=>`<span>${escape(s.roster.find(q=>q.id===from)?.name)} voted ${to==='skip'?'Skip':escape(s.roster.find(q=>q.id===to)?.name)}</span>`).join('')}</div>`:''}</main>`;
     if(v.target)cinemaSuit(screen.querySelector('canvas'),{...v.target,alive:true});
   }else if(s.phase==='result'){
     const v=s.outcome;
-    screen.innerHTML=`<main class="cinema result ${v.team==='impostor'?'red':''}"><div class="eyebrow">FLIGHT ${s.round} COMPLETE</div><div class="airlock-icon">✦</div><h1>${v.team==='impostor'?'Infiltrator victory':'Crew victory'}</h1><p>${escape(v.reason)}</p><div class="result-roster">${v.crew.map(q=>`<span>${portrait(q.color,q.hat,true)}${escape(q.name)}<small>${escape(special[q.role]?.name||(q.team==='impostor'?'Infiltrator':'Crew'))}</small></span>`).join('')}</div><div class="actions">${s.host===p.id?btn('Return to shuttle','reset','primary'):'<span class="muted">Waiting for the captain to re-dock.</span>'}${btn('Leave','leave','quiet')}</div></main>`;
+    const heading=v.winner?`${special[v.winner.role].name} Wins`:`${v.team==='impostor'?'Impostors':'Crewmates'} Win`;
+    screen.innerHTML=`<main class="cinema result ${v.team==='impostor'?'red':v.winner?'neutral':''}"><div class="eyebrow">MATCH ${s.round} COMPLETE</div>${v.winner?'<canvas class="role-portrait" width="220" height="145"></canvas>':'<div class="airlock-icon">✦</div>'}<h1>${heading}</h1><p>${escape(v.reason)}</p><div class="result-roster">${v.crew.map(q=>`<span>${portrait(q.color,q.hat,true)}${escape(q.name)}<small>${escape(special[q.ghost]?.name||special[q.role]?.name||teamName[q.team])}</small></span>`).join('')}</div><div class="actions">${s.host===p.id?btn(actionIcon('again')+' Play Again','reset','primary'):'<span class="muted">Waiting for the host to start another match.</span>'}${btn(actionIcon('quit')+' Quit','leave','quiet')}</div></main>`;
+    if(v.winner)cinemaSuit(screen.querySelector('canvas'),{...v.winner,alive:true});
   }
 }
 function refreshMeeting(){
@@ -372,7 +386,7 @@ function refreshMeeting(){
   const selected=selectedVote==='skip'?'Skip Vote':s.roster.find(q=>q.id===selectedVote)?.name;
   markup('ballot-controls',`<div class="ballot-actions">${can?btn('Skip Vote','pick-vote','outline','data-id="skip"'):''}
     ${can&&selected?`<span>Vote for <strong>${escape(selected)}</strong>?</span>${btn('Confirm vote','vote','primary')}${btn('Cancel','cancel-vote','quiet')}`:''}
-    ${ballot?'<span class="ballot-saved">Ballot submitted</span>':''}
+    ${ballot?'<span class="ballot-saved">Vote submitted</span>':''}
     <span class="ballot-progress">${eligible.filter(q=>m.voted?.includes(q.id)).length} / ${eligible.length} voted</span></div>`);
 }
 function refreshChat(){
@@ -388,36 +402,59 @@ function refreshChat(){
   document.querySelector('#meeting-ballot').hidden=chatActive;
   document.querySelector('#meeting-chat-button').setAttribute('aria-pressed',String(chatActive));
   document.querySelector('#meeting-ballot-button').setAttribute('aria-pressed',String(!chatActive));
-  const msg=messages.map(q=>`<p>${tag(q.color)} <b>${escape(q.name)}${q.ghost?' · Ghost':''}</b> ${escape(q.text)}</p>`).join('')||'<p class="muted">Channel is quiet.</p>';
+  const msg=messages.map(q=>`<p>${tag(q.color)} <b>${escape(q.name)}${q.ghost?' · Ghost':''}</b> ${escape(q.text)}</p>`).join('')||'<p class="muted">No messages yet.</p>';
   if(box.dataset.content===msg)return;
   const bottom=box.scrollTop+box.clientHeight>box.scrollHeight-42;
   box.innerHTML=msg;box.dataset.content=msg;if(bottom)box.scrollTop=box.scrollHeight;
 }
 const taskTotal=cfg=>cfg.commonTasks+cfg.longTasks+cfg.shortTasks;
-const numberField=(name,label,min,max,value)=>`<label>${label}<input type="number" name="${name}" min="${min}" max="${max}" value="${value}" required></label>`;
-const roleFields=id=>id==='judge'?[]:id==='noisemaker'?['duration']:['cooldown','duration'];
+const selectSetting=(key,label,choices,value,description='')=>`<div class="setting-choice"><label>${label}<select name="${key}" aria-label="${label}" ${description?`aria-describedby="setting-${key}"`:''}>${choices.map(([val,name])=>`<option value="${val}" ${val===value?'selected':''}>${name}</option>`).join('')}</select></label>${description?`<small id="setting-${key}">${description}</small>`:''}</div>`;
 function settingsPanel(){
   const cfg=state.settings;
-  const numberInputs=Object.entries(gameNumbers).map(([key,[label,min,max]])=>numberField(key,label,min,max,cfg[key])).join('');
-  const checks=Object.entries(gameChecks).map(([key,label])=>`<label><input type="checkbox" name="${key}" ${cfg[key]?'checked':''}> ${label}</label>`).join('');
-  const roles=Object.entries(special).map(([id,v])=>{
-    const values=[['max','Max',0,4],['chance','Chance (%)',0,100],...roleFields(id).map(k=>[k,k==='duration'?'Duration (s)':'Cooldown (s)',k==='duration'?1:0,k==='duration'?55:100])];
-    return `<details><summary>${v.name} <small>${v.team}</small></summary><p>${v.description}</p><label><input type="checkbox" name="${id}:enabled" ${cfg.roles[id].enabled?'checked':''}> Enabled</label><div class="settings-grid">${values.map(([k,l,a,b])=>numberField(id+':'+k,l,a,b,cfg.roles[id][k])).join('')}</div></details>`;
+  const setting=key=>{
+    const [label,,options,description]=gameNumbers[key];
+    return selectSetting(key,label,options,cfg[key],description);
+  };
+  const toggle=key=>{
+    const [label,,description]=gameChecks[key];
+    return selectSetting(key,label,[[true,'On'],[false,'Off']],cfg[key],description);
+  };
+  const roleGroup=(...teams)=>Object.entries(special).filter(([,role])=>teams.includes(role.team)).map(([id,role])=>{
+    const inputs=['max','chance',...roleFields(id)].map(key=>selectSetting(id+':'+key,roleNumbers[key][0],roleChoices(id,key),cfg.roles[id][key],roleNumbers[key][2])).join('');
+    return `<details><summary>${role.name}${role.team==='ghost'?' <small>Ghost role</small>':''}</summary><p>${role.description}</p><label><input type="checkbox" name="${id}:enabled" ${cfg.roles[id].enabled?'checked':''}> Enabled</label><div class="settings-grid">${inputs}</div></details>`;
   }).join('');
-  panel('settings','Lobby settings',`<form id="settings-form" novalidate><div class="settings-save"><button class="primary" type="submit">Save settings</button><p id="settings-feedback" class="feedback" role="status"></p></div><div class="settings-grid">${numberInputs}<label>Task bar updates<select name="taskBar">${Object.entries(taskBars).map(([key,label])=>`<option value="${key}" ${cfg.taskBar===key?'selected':''}>${label}</option>`).join('')}</select></label></div><div class="checks">${checks}</div><h3>Optional roles</h3><p class="muted">Roles start disabled. Available seats depend on team size.</p><div class="roles-grid">${roles}</div></form>`,{className:'wide'});
+  const sections=[
+    ['General', ['impostors','speed','crewVision','impostorVision','killCooldown','killDistance'].map(setting).join('')],
+    ['Tasks',['commonTasks','longTasks','shortTasks'].map(setting).join('')+toggle('visualTasks')+selectSetting('taskBar','Task Bar Updates',Object.entries(taskBars),cfg.taskBar,'When the shared Crewmate progress meter is visible.')],
+    ['Meetings',['emergencies','meetingCooldown','discussion','voting'].map(setting).join('')+['anonymous','confirm','early'].map(toggle).join('')],
+    ['Crewmates',roleGroup('crew','ghost')],['Impostors',roleGroup('impostor')],['Neutrals',roleGroup('neutral')]
+  ];
+  const tabs=sections.map(([label],i)=>btn(label,'settings-section','outline',`data-id="${i}" aria-controls="settings-section-${i}" aria-pressed="${i===0}"`)).join('');
+  const groups=sections.map(([label,content],i)=>`<section id="settings-section-${i}" class="settings-section" ${i?'hidden':''}><h3>${label}</h3>${i===5?'<p class="muted">Mod-inspired roles. Up to two neutral seats, depending on lobby size. Vulture goals are limited by starting player count.</p>':''}<div class="${i<3?'settings-grid':'roles-grid'}">${content}</div></section>`).join('');
+  panel('settings','Game Settings',`<form id="settings-form"><div class="settings-save"><div class="settings-tabs" aria-label="Settings categories">${tabs}</div><div class="settings-commands"><button class="primary" type="submit">Save Settings</button>${btn('Reset to Recommended','settings-defaults','quiet')}<span id="settings-feedback" class="feedback" role="status"></span></div></div>${groups}</form>`,{className:'wide settings-panel'});
+}
+function resetSettings(form){
+  const defaults=gameDefaults(),roles=defaultRoles();
+  for(const [key,value] of Object.entries(defaults))form.elements[key].value=String(value);
+  for(const [id,fields] of Object.entries(roles))for(const [field,value] of Object.entries(fields)){
+    const input=form.elements[id+':'+field];
+    if(field==='enabled')input.checked=value;
+    else input.value=String(value);
+  }
+  form.querySelector('#settings-feedback').textContent='Recommended settings loaded. Save to apply.';
 }
 function suitPanel(){
   const p=state.self;
-  panel('suit','Suit locker',`<div class="gear-preview"><canvas width="220" height="145" aria-label="Selected suit preview"></canvas><div class="gear-controls"><label>Equipment<select id="hat">${hats.map((h,i)=>`<option value="${i}" ${i===p.hat?'selected':''}>${h}</option>`).join('')}</select></label><label><input id="show-name" type="checkbox" ${p.showName?'checked':''}> Display nickname above suit</label></div></div>
+  panel('suit','Customize',`<div class="gear-preview"><canvas width="220" height="145" aria-label="Selected suit preview"></canvas><div class="gear-controls"><label>Equipment<select id="hat">${hats.map((h,i)=>`<option value="${i}" ${i===p.hat?'selected':''}>${h}</option>`).join('')}</select></label><label><input id="show-name" type="checkbox" ${p.showName?'checked':''}> Display nickname above suit</label></div></div>
     <div class="swatches suit-palette" aria-label="Suit colors">${suitPalette.map(([id,name])=>btn(`${portrait(id,0,true)}<span>${name}</span>`,'color','color-button','data-color="'+id+'" aria-label="'+name+'" title="'+name+'"')).join('')}</div>`,{className:'suit-panel'});
   cinemaSuit(layer.querySelector('canvas'),p);update();
 }
 function missionList(){
-  if(state.sabotage?.kind==='comms'){panel('tasks','Assignments offline','<p>Restore comms to recover ship assignments.</p>');return;}
+  if(state.sabotage?.kind==='comms'){panel('tasks','Assignments offline','<p>Restore comms to recover task list.</p>');return;}
   const p=state.self, cover=p.team==='impostor';
   const done=p.assignments.filter(a=>a.done).length;
   const summary=p.assignments.length?`${done} / ${p.assignments.length} ${cover?'cover assignments':'personal tasks'} complete`:'No tasks assigned';
-  panel('tasks',cover?'Cover assignments':'Assigned maintenance',`<p class="task-summary">${summary}</p><ul class="mission-list">${p.assignments.map(a=>{const task=tasks.find(v=>v.id===a.id);return '<li class="'+(a.done?'done':'')+'"><b>'+escape(a.done?task.label:taskStageName(task,a.stage))+'</b><span>'+(a.done?'Complete':(task.stops[a.stage].name||deck[task.stops[a.stage].room].name)+' • '+task.kind+(task.stops.length>1?' '+(a.stage+1)+'/'+task.stops.length:'')+(task.instrument==='route'&&a.stage===0?' → '+deck[task.stops[1].room].name:''))+'</span></li>';}).join('')}</ul>`);
+  panel('tasks',cover?'Fake Tasks':'Assigned maintenance',`<p class="task-summary">${summary}</p><ul class="mission-list">${p.assignments.map(a=>{const task=tasks.find(v=>v.id===a.id);return '<li class="'+(a.done?'done':'')+'"><b>'+escape(a.done?task.label:taskStageName(task,a.stage))+'</b><span>'+(a.done?'Complete':(task.stops[a.stage].name||deck[task.stops[a.stage].room].name)+' • '+task.kind+(task.stops.length>1?' '+(a.stage+1)+'/'+task.stops.length:'')+(task.instrument==='route'&&a.stage===0?' → '+deck[task.stops[1].room].name:''))+'</span></li>';}).join('')}</ul>`);
 }
 const alarmNames={reactor:'Reactor meltdown',oxygen:'Oxygen depletion',lights:'Lighting failure',comms:'Communications failure'};
 function repairPanel(){
@@ -429,7 +466,7 @@ function repairPanel(){
     reactor:()=>'<div class="repair-chassis"><p>Link both relay pads within five seconds. In a group match, one player operates each pad.</p>'+btn('Press relay pad','relay-pad','primary reactor-pad')+'</div>',
     comms:()=>'<form id="repair-form" class="repair-chassis"><p>Match the receiver trace to the reference.</p><div class="signal-display" aria-hidden="true"><svg viewBox="0 0 300 85" preserveAspectRatio="none"><path id="signal-reference"/><path id="signal-reading"/></svg></div><label>Receiver frequency<input id="receiver-frequency" name="reading" type="range" min="0" max="100" value="50"></label><output id="signal-match" for="receiver-frequency"></output><button class="primary">Lock frequency</button></form>'
   }[s.kind]();
-  panel('repair',s.kind[0].toUpperCase()+s.kind.slice(1)+' recovery','<p id="repair-status" role="status"></p>'+body,{station:station.index,className:'repair-console'});
+  panel('repair',s.kind[0].toUpperCase()+s.kind.slice(1)+' Repair','<p id="repair-status" role="status"></p>'+body,{station:station.index,className:'repair-console'});
   if(s.kind==='comms'){
     const form=layer.querySelector('form'),input=form.elements.reading;
     const trace=frequency=>Array.from({length:91},(_,i)=>(i?'L':'M')+(i*10/3)+' '+(42+Math.sin(i*frequency/290)*26)).join(' ');
@@ -464,7 +501,7 @@ function refreshSabotage(){
   for(const button of layer.querySelectorAll('[data-do=target-sabotage]')){
     const isDoor=button.dataset.id==='doors',until=p.doorReady?.[door]||0;
     button.disabled=isDoor?Boolean(sabotage||sealed.includes(door)||until>t):!ready;
-    if(isDoor)button.textContent=sealed.includes(door)?'Bulkhead sealed':until>t?'Bulkhead cooldown · '+clock(until,t)+'s':'Seal bulkhead';
+    if(isDoor)button.querySelector('span').textContent=sealed.includes(door)?'Door Closed':until>t?'Door Cooldown · '+clock(until,t)+'s':'Close Door';
   }
 }
 function abilityPanel(){
@@ -472,6 +509,7 @@ function abilityPanel(){
   if(!role)return;
   const available=now()>=p.abilityAt&&(id!=='scientist'||p.battery), target=(['angel','influencer','shapeshifter'].includes(id)?s.roster:s.positions).filter(q=>q.id!==p.id&&q.alive!==false);
   let body='<p>'+escape(role.description)+'</p>';
+  if(id==='vulture')body+='<p>'+collectionText(p)+'. Check the purple markers on your map.</p>';
   if(id==='scientist')body+='<ul class="mission-list" id="vitals"></ul>';
   if(id==='detective'&&s.tactical.notes)body+='<ul>'+s.tactical.notes.map(q=>'<li>'+escape(q.text)+'</li>').join('')+'</ul>';
   if(id==='tracker'&&s.tactical.track)body+='<p>Tracking '+escape(s.tactical.track.name)+'. Check the deck map.</p>';
@@ -479,7 +517,7 @@ function abilityPanel(){
   if(p.effectUntil>now())body+='<p class="cooldown">Effect active · <span id="effect-time">'+clock(p.effectUntil,now())+'</span>s</p>';
   if(now()<p.abilityAt)body+='<p class="cooldown">Ready in <span id="ability-time">'+clock(p.abilityAt,now())+'</span>s</p>';
   if(id==='scientist'&&!p.battery)body+='<p>Complete an assignment to recharge the vitals battery.</p>';
-  if(available&&['engineer','scientist','phantom'].includes(id))body+=btn(role.ability,'activate','primary');
+  if(available&&['engineer','scientist','phantom'].includes(id))body+=btn((id==='scientist'?actionIcon('vitals')+' ':id==='engineer'?actionIcon('vent')+' ':'')+role.ability,'activate','primary');
   if(available&&['angel','influencer','shapeshifter','tracker','detective'].includes(id)){
     if(id==='influencer')body+='<div class="signal-hand">'+(s.tactical.signals||[]).map((symbol,i)=>'<label><input type="checkbox" name="signal" value="'+escape(symbol)+'" aria-label="Symbol '+(i+1)+'"> '+escape(symbol)+'</label>').join('')+'</div>'+(s.tactical.refresh?btn('Refresh symbols','refresh-signals','quiet'):'');
     body+='<div class="targets">'+target.filter(q=>!q.id.startsWith('echo-')).map(q=>btn(tag(q.color)+' '+escape(q.name),'activate','','data-id="'+q.id+'"')).join('');
@@ -528,23 +566,24 @@ async function performInteraction(action){
   if(action.kind==='monitor'){
     const res=await command('monitor',{kind:action.data});
     if(res.security){
-      panel('cameras','Security surveillance','<div class="security-grid">'+cameraSites.map((site,i)=>
+      panel('cameras','Security Cameras','<div class="security-grid">'+cameraSites.map((site,i)=>
         `<figure class="camera-feed"><figcaption><span>0${i+1} · ${site.name}</span><small>LIVE</small></figcaption><canvas width="286" height="174" aria-label="${site.name}"></canvas></figure>`
-      ).join('')+'</div>'+btn('Exit cameras','camera-exit','outline'),{openedAt:now(),className:'security-console'});
+      ).join('')+'</div>'+btn('Exit Cameras','camera-exit','outline'),{openedAt:now(),className:'security-console'});
       if(state.tactical.cameras)drawSecurityFeeds(layer.querySelectorAll('canvas'),state);
-    }else if(res.ok)panel('monitor','Command telemetry','<ul class="mission-list">'+res.readings.map(([k,v])=>'<li><b>'+escape(k)+'</b><span>'+escape(v)+'</span></li>').join('')+'</ul>'+btn('Refresh','interact'));
+    }else if(res.ok)panel('monitor','Admin Map','<ul class="mission-list">'+res.readings.map(([k,v])=>'<li><b>'+escape(k)+'</b><span>'+escape(v)+'</span></li>').join('')+'</ul>'+btn('Refresh','interact'));
     return;
   }
-  await command(action.kind,action.data);
+  const reply=await command(action.kind,action.data);
+  if(reply.ok&&action.kind==='collect'&&reply.done<reply.goal)notice(`${reply.done} / ${reply.goal} reported sites collected.`);
 }
 const hatchName=index=>vents[index].name||deck[vents[index].room].name;
 function showHatch(at){
-  panel('vent','Service hatch',`<h3>${hatchName(at)}</h3><p id="hatch-status" role="status">Hatch cycling</p>${deckCanvas(550,'map hatch-map')}<div class="targets">${ventDestinations(at).map(i=>btn(hatchName(i),'vent','outline','data-id="'+i+'" disabled')).join('')}${btn('Exit hatch','exit-vent','primary')}</div>`,
+  panel('vent','Vent Network',`<h3>${hatchName(at)}</h3><p id="hatch-status" role="status">Vent cooldown</p>${deckCanvas(550,'map hatch-map')}<div class="targets">${ventDestinations(at).map(i=>btn(hatchName(i),'vent','outline','data-id="'+i+'" disabled')).join('')}${btn('Exit Vent','exit-vent','primary')}</div>`,
     {index:at,openedAt:now(),className:'hatch-console'});
   drawMap(layer.querySelector('canvas'),state,false,at);
 }
 function showMap(held=false){
-  panel('map','Meridian deck plan',deckCanvas(980)+'<div class="map-legend"><span>● Your position</span><span>● Assigned station</span><span>● Active repairs</span></div>',{held,className:'map-panel blue-map'});
+  panel('map','Map',deckCanvas(980)+'<div class="map-legend"><span>● Your position</span><span>● Tasks</span><span>● Sabotage repairs</span></div>',{held,className:'map-panel blue-map'});
   document.getElementById('map-open').hidden=true;
   layer.firstElementChild.insertAdjacentHTML('beforeend',mapButton('map-close'));
   drawMap(layer.querySelector('canvas'),state);
@@ -569,12 +608,19 @@ async function click(b){
   if(action==='close'){closeModal();return;}
   if(!state)return;
   const s=state,p=s.self;
-  if(action==='settings')settingsPanel();
+  if(action==='settings'&&s.phase==='lobby'&&s.host===p.id)settingsPanel();
+  if(action==='settings-section'){
+    const form=b.form;
+    for(const section of form.querySelectorAll('.settings-section'))section.hidden=section.id!=='settings-section-'+id;
+    for(const tab of form.querySelectorAll('[data-do=settings-section]'))tab.setAttribute('aria-pressed',String(tab===b));
+    form.closest('.panel').scrollTop=0;
+  }
+  if(action==='settings-defaults')resetSettings(b.form);
   if(action==='flight-settings'){
     const soundOn=localStorage.getItem('fayez-sound')!=='off';
-    panel('flight-settings','Flight settings',`<p>Move with WASD or the arrow keys. Use Space to interact. Hold Tab to peek at the map or press M to toggle it.</p>
+    panel('flight-settings','Game Settings',`<p>Move with WASD or the arrow keys. Use Space to interact. Hold Tab to peek at the map or press M to toggle it.</p>
       <label class="sound-setting"><input type="checkbox" id="flight-sound" ${soundOn?'checked':''}> Game sounds</label>
-      ${btn('Leave flight','leave','danger')}`);
+      ${btn(actionIcon('quit')+' Quit','leave','danger')}`);
   }
   if(action==='meeting-tab'&&s.phase==='meeting'){
     meetingTab=id;refreshChat();
@@ -587,7 +633,7 @@ async function click(b){
     showMap();
   }
   if(action==='sabotage'&&s.phase==='play'&&p.team==='impostor'){
-    panel('sabotage','Sabotage controls',`${deckCanvas(900,'map sabotage-map')}<p id="sabotage-status" role="status"></p><div class="targets sabotage-targets">${Object.keys(repairs).map(k=>btn(k.toUpperCase(),'target-sabotage','danger','data-id="'+k+'"')).join('')}</div><label>Bulkhead<select id="door">${doors.map(d=>'<option value="'+d.id+'">'+escape(d.label)+'</option>').join('')}</select></label>${btn('Seal bulkhead','target-sabotage','outline','data-id="doors"')}`,{className:'map-panel sabotage-console'});
+    panel('sabotage','Sabotage controls',`${deckCanvas(900,'map sabotage-map')}<p id="sabotage-status" role="status"></p><div class="targets sabotage-targets">${Object.keys(repairs).map(k=>btn(actionIcon(k)+' '+k.toUpperCase(),'target-sabotage','danger','data-id="'+k+'"')).join('')}</div><label>Doors<select id="door">${doors.map(d=>'<option value="'+d.id+'">'+escape(d.label)+'</option>').join('')}</select></label>${btn(actionIcon('doors')+' <span>Close Door</span>','target-sabotage','outline','data-id="doors"')}`,{className:'map-panel sabotage-console'});
     const canvas=layer.querySelector('canvas');
     drawMap(canvas,state,true);
     refreshSabotage();
@@ -621,7 +667,7 @@ async function click(b){
     if(res.ok){notice('Ability activated.');setTimeout(()=>{if(modal?.kind==='ability')abilityPanel();},115);}
   }
   if(action==='strike'){
-    const q=nearest(s.positions.filter(q=>q.id!==p.id&&q.alive&&!p.allies.includes(q.id)&&!q.id.startsWith('echo-')),p,s.settings.killDistance);
+    const q=killTarget(s,p);
     if(q)await command('strike',{target:q.id});else notice('There is no target in range.');
   }
   if(action==='refresh-signals'&&(await command('ability',{refresh:true})).ok)setTimeout(()=>{if(modal?.kind==='ability')abilityPanel();},115);
@@ -674,17 +720,9 @@ document.addEventListener('submit',async e=>{
   if(form.id==='settings-form'){
     const feedback=form.querySelector('#settings-feedback'), save=form.querySelector('[type=submit]');
     if(save.disabled)return;
-    const invalid=form.querySelector(':invalid');
-    if(invalid){
-      const group=invalid.closest('details');
-      if(group)group.open=true;
-      feedback.textContent=invalid.labels[0].textContent+' · '+invalid.validationMessage;
-      invalid.reportValidity();
-      return;
-    }
     const cfg=Object.fromEntries(Object.keys(gameNumbers).map(k=>[k,Number(data.get(k))]));
     cfg.taskBar=data.get('taskBar');
-    for(const key of Object.keys(gameChecks))cfg[key]=data.has(key);
+    for(const key of Object.keys(gameChecks))cfg[key]=data.get(key)==='true';
     cfg.roles=Object.fromEntries(Object.keys(special).map(id=>[id,{enabled:data.has(id+':enabled'),...Object.fromEntries(['max','chance',...roleFields(id)].map(k=>[k,Number(data.get(id+':'+k))]))}]));
     save.disabled=true;feedback.textContent='Saving settings…';
     const reply=await command('settings',cfg);
@@ -699,7 +737,7 @@ document.addEventListener('submit',async e=>{
   }
   if(form.id==='repair-form'){
     const value=data.get('reading'),a=state.sabotage?.kind==='oxygen'?String(value):Number(value);
-    if((await command('repair',{index:modal.station,a})).ok){closeModal(false);notice('Repair input accepted.');}
+    if((await command('repair',{index:modal.station,a})).ok){closeModal(false);notice('Repair accepted.');}
   }
 });
 addEventListener('keydown',e=>{
