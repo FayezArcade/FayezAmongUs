@@ -1,6 +1,6 @@
 import {randomBytes,randomInt} from 'node:crypto';
 import {colors,hats,rooms,deckRevision,deck,playerRadius,doors,vents,ventDestinations,tasks,taskRange,repairs,dist,walkable,clearDeckLine as hasLine,spawn,terminal,meetingPoint,emergencyRange,contains,cameraSites,securityConsole,securityRange} from '../shared/deck.js';
-import {gameNumbers,gameChecks,taskBars} from '../shared/settings.js';
+import {gameNumbers,gameChecks,taskBars,requiredPlayers} from '../shared/settings.js';
 import {special,defaultRoles,signals} from '../shared/roles.js';
 import {advanceMovement} from '../shared/movement.js';
 import {puzzle,publicPuzzle,stepPuzzle,randomOrder} from './puzzles.js';
@@ -19,6 +19,8 @@ const point=(p)=>({x:Math.round(p.x),y:Math.round(p.y)});
 const label=(p)=>({id:p.id,name:p.name,color:p.color,hat:p.hat,online:Boolean(p.socket)});
 const roomName=(p)=>rooms.find(r=>contains(r,p.x,p.y))?.name||'Transit';
 const active=(p)=>p?.alive&&!p.retired;
+const canVote=p=>active(p)&&Boolean(p.socket);
+const strikeCooldown=(r,p)=>(p.role==='viper'?r.settings.roles.viper.cooldown:r.settings.killCooldown)*1000;
 const taskVariants=new Set(['wire','data','route','clean']);
 const taskPools={common:new Map(),long:new Map(),short:new Map()};
 for(const task of tasks){
@@ -32,7 +34,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
   const roomsByCode=new Map();
   const bound=new Map();
   function reset(r) {
-    Object.assign(r,{phase:'lobby',solo:false,until:null,launchCrew:null,players:r.players.filter(p=>p.socket),meeting:null,outcome:null,bodies:[],doors:{},sabotage:null,alerts:[],chat:[],ghostSlots:[]});
+    Object.assign(r,{phase:'lobby',until:null,launchCrew:null,players:r.players.filter(p=>p.socket),meeting:null,outcome:null,bodies:[],doors:{},sabotage:null,alerts:[],chat:[],ghostSlots:[]});
     r.players.forEach((p,i)=>Object.assign(p,spawn(i,true),{alive:true,retired:false,team:null,role:null,ghost:null,assignments:[],opened:null,ventIndex:null,direction:'down',effect:null,shield:0,signal:null,notes:[],moving:false,input:{x:0,y:0}}));
     migrate(r);
   }
@@ -86,32 +88,31 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
   }
   function startCountdown(r,t) {
     const count=r.players.filter(p=>p.socket).length;
-    const solo=count===1&&r.players.length===1;
-    valid(solo||count>=4,'Start alone for testing or invite at least four connected players.');
-    valid(solo||count>=r.settings.impostors*2+2,'This infiltrator count needs a larger crew.');
-    valid(solo||r.settings.commonTasks+r.settings.shortTasks+r.settings.longTasks>0,'Assign at least one maintenance task.');
-    Object.assign(r,{phase:'countdown',solo,until:t+3000,launchCrew:r.players.filter(p=>p.socket).map(p=>p.id)});
+    const minimum=requiredPlayers(r.settings.impostors);
+    valid(count>=minimum,`Invite at least ${minimum} connected players for these settings.`);
+    Object.assign(r,{phase:'countdown',until:t+3000,launchCrew:r.players.filter(p=>p.socket).map(p=>p.id)});
     for(const p of r.players)p.input={x:0,y:0};
   }
   function start(r,t) {
     if(!r.launchCrew.every(id=>r.players.some(p=>p.id===id&&p.socket))){
-      Object.assign(r,{phase:'lobby',solo:false,until:null,launchCrew:null});
+      Object.assign(r,{phase:'lobby',until:null,launchCrew:null});
       return;
     }
-    const n=r.solo?0:r.settings.impostors;
+    const n=r.settings.impostors;
     r.players=r.players.filter(p=>p.socket);
-    Object.assign(r,{phase:'reveal',until:t+3400,round:(r.round||0)+1,meeting:null,bodies:[],doors:{},doorReady:{},hatchEffects:[],sabotage:null,alerts:[],taskEffects:{},chat:[],outcome:null,sabotageAt:t+(r.solo?3400:10500),meetingAt:t+3400+r.settings.meetingCooldown*1000});
+    Object.assign(r,{phase:'reveal',until:t+3400,round:(r.round||0)+1,meeting:null,bodies:[],doors:{},doorReady:{},hatchEffects:[],sabotage:null,alerts:[],taskEffects:{},chat:[],outcome:null,sabotageAt:t+10500,meetingAt:t+3400+r.settings.meetingCooldown*1000});
     const order=randomOrder(r.players), slots={impostor:rollSlots(r,'impostor'),crew:rollSlots(r,'crew')};
     r.ghostSlots=rollSlots(r,'ghost');
     const commons=drawTasks('common',r.settings.commonTasks);
     order.forEach((p,i)=>{
       const team=i<n?'impostor':'crew';
       // Practice exposes every station. Multiplayer continues to draw from the host's configured pools.
-      const assignments=r.solo?tasks:[...commons,...drawTasks('long',r.settings.longTasks),...drawTasks('short',r.settings.shortTasks)];
-      const role=r.solo?null:slots[team].shift()||null;
+      const assignments=[...commons,...drawTasks('long',r.settings.longTasks),...drawTasks('short',r.settings.shortTasks)];
+      const role=slots[team].shift()||null;
       Object.assign(p,spawn(i,false),{alive:true,retired:false,team,role,ghost:null,opened:null,
-        killAt:t+3400+(role==='viper'?r.settings.roles.viper.cooldown:r.settings.killCooldown)*1000,abilityAt:t+3400,reported:false,emergencies:r.settings.emergencies,cameras:false,
+        abilityAt:t+3400,reported:false,emergencies:r.settings.emergencies,cameras:false,
         sampleLab:null,ventExitUntil:0,assignments:assignments.map(({id})=>({id,stage:0,done:false})),shield:0,effect:null,used:false,notes:[],seen:[],signal:null,signalHand:null,signalReroll:true,battery:true,trail:[],ventIndex:null,ventAt:0,roomStamp:null,input:{x:0,y:0}});
+      p.killAt=t+3400+strikeCooldown(r,p);
     });
   }
   function progress(r) {
@@ -123,7 +124,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     for(const p of r.players)p.opened=null;
   }
   function win(r) {
-    if(r.phase!=='play'||r.solo)return;
+    if(r.phase!=='play')return;
     const live=r.players.filter(active), impostors=live.filter(p=>p.team==='impostor').length, crew=live.length-impostors;
     const completed=progress(r);
     if(!impostors)result(r,'crew','All infiltrators were removed.');
@@ -156,28 +157,31 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     for(const q of r.players){q.input={x:0,y:0};q.opened=null;q.cameras=false;q.effect=null;q.ventIndex=null;}
   }
   function tally(r,t) {
-    const m=r.meeting, live=r.players.filter(active);
-    const votes=Object.entries(m.votes).filter(([id,v])=>live.some(p=>p.id===id)&&(v==='skip'||live.some(p=>p.id===v)));
+    const m=r.meeting, live=r.players.filter(active), eligible=live.filter(canVote);
+    // A submitted ballot survives a temporary disconnect during its reconnect window.
+    // A candidate must still be connected to be ejected.
+    const votes=Object.entries(m.votes).filter(([id,v])=>live.some(p=>p.id===id)&&(v==='skip'||eligible.some(p=>p.id===v)));
     const counts={}; for(const [,v] of votes) counts[v]=(counts[v]||0)+1;
     const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
     const leader=sorted[0], tie=Boolean(leader&&leader[1]===sorted[1]?.[1]);
     let target=leader&&!tie&&leader[0]!=='skip'?r.players.find(p=>p.id===leader[0]):null;
-    if(m.judge&&live.some(p=>p.id===m.judge.id)&&live.some(p=>p.id===m.judge.target)){
+    const override=Boolean(r.settings.roles.judge.enabled&&m.judge&&eligible.some(p=>p.id===m.judge.id)&&eligible.some(p=>p.id===m.judge.target));
+    if(override){
       const verdict=r.players.find(p=>p.id===m.judge.target);
       target=verdict.team==='impostor'?verdict:r.players.find(p=>p.id===m.judge.id);
     }
     if(target)die(r,target,t,false);
-    m.result={target:target?label(target):null,tie:!target&&tie,counts,role:target&&r.settings.confirm?target.team:null,
+    m.result={target:target?label(target):null,tie:!target&&tie,counts,override,role:target&&r.settings.confirm?target.team:null,
       votes:r.settings.anonymous?null:votes};
     r.phase='verdict';r.until=t+4800;
   }
 
   function privateAbility(r,p,req,t) {
     const id=p.alive?p.role:p.ghost,spec=special[id],cfg=r.settings.roles[id];
-    valid(spec&&id!=='noisemaker'&&id!=='viper','No manual ability is available.');
+    valid(spec&&cfg.enabled&&id!=='noisemaker'&&id!=='viper','No manual ability is available.');
     if(id==='judge'){
-      valid(r.phase==='meeting'&&t>=r.meeting.voteAt&&!p.used&&!r.meeting.judge&&p.assignments.some(a=>a.done),'Use the verdict during a ballot.');
-      const target=r.players.find(q=>q.id===req?.target&&q.id!==p.id&&active(q));
+      valid(r.phase==='meeting'&&t>=r.meeting.voteAt&&t<r.meeting.end&&!p.used&&!r.meeting.judge&&p.assignments.some(a=>a.done),'Use the verdict during a ballot.');
+      const target=r.players.find(q=>q.id===req?.target&&q.id!==p.id&&canVote(q));
       valid(target,'Choose an eligible player.');
       p.used=true;r.meeting.judge={id:p.id,target:target.id};return;
     }
@@ -259,36 +263,17 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     }));
   }
 
-  function practice(r,p){return r.solo&&r.phase==='play'&&p.id===r.host&&r.players.length===1;}
   function expireCritical(r,t){
     if(r.phase!=='play'||!r.sabotage?.until||t<r.sabotage.until)return;
-    if(r.solo)restoreSystems(r,t);
-    else result(r,'impostor','The ship could not recover from the '+r.sabotage.kind+' emergency.');
+    result(r,'impostor','The ship could not recover from the '+r.sabotage.kind+' emergency.');
   }
   function command(r,p,kind,req,t) {
     expireCritical(r,t);
     const blocked=Object.keys(r.doors).map(Number);
     const isHost=p.id===r.host;
     switch(kind) {
-      case 'settings': valid(isHost&&r.phase==='lobby','Only the captain configures the lobby.');updateSettings(r,req);break;
+      case 'settings': valid(isHost&&r.phase==='lobby','Only the captain configures the lobby.');updateSettings(r,req);return {settings:r.settings};
       case 'start': valid(isHost&&r.phase==='lobby','Only the captain starts the flight.');startCountdown(r,t);break;
-      case 'practiceRole': {
-        valid(practice(r,p),'Role practice is available only in a solo test.');
-        const role=req?.role;
-        valid([null,'engineer','scientist','phantom'].includes(role),'Choose an available practice role.');
-        valid(p.ventIndex===null,'Exit the service hatch first.');
-        Object.assign(p,{role,effect:null,abilityAt:t,battery:true});
-        break;
-      }
-      case 'practiceClear':
-        valid(practice(r,p),'System reset is available only in a solo test.');
-        Object.assign(r,{sabotage:null,doors:{},doorReady:{},sabotageAt:t});break;
-      case 'practiceMeeting':
-        valid(practice(r,p),'Meeting drills require a solo test.');
-        valid(req?.kind==='emergency'||req?.kind==='report','Choose a meeting drill.');
-        assembly(r,p,t,req.kind);break;
-      case 'practiceReturn':
-        valid(practice(r,p),'Only the solo tester can return to the dropship.');reset(r);break;
       case 'reset': valid(isHost&&r.phase==='result','Only the captain can re-dock.');reset(r);break;
       case 'suit': {
         valid(r.phase==='lobby'&&dist(p,terminal)<76,'Approach the gear terminal.');
@@ -331,7 +316,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         const target=r.players.find(q=>q.id===req?.target && q.team==='crew'&&active(q)&&q.ventIndex===null);
         valid(r.phase==='play'&&p.team==='impostor'&&p.alive&&p.ventIndex===null&&t>=p.killAt,'Elimination is cooling down.');
         valid(target&&dist(p,target)<r.settings.killDistance&&hasLine(p,target,blocked),'Get closer to a target.');
-        p.killAt=t+(p.role==='viper'?r.settings.roles.viper.cooldown:r.settings.killCooldown)*1000;p.effect=null;
+        p.killAt=t+strikeCooldown(r,p);p.effect=null;
         if(target.shield>t){target.shield=0;return {notice:'The strike hit a shield.'};}
         const body=p.role==='viper'?t+Math.max(1,r.settings.roles.viper.duration)*1000:true;
         die(r,target,t,body);p.x=target.x;p.y=target.y;win(r);break;
@@ -366,7 +351,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         p.input={x:0,y:0};return {index:p.ventIndex};
       }
       case 'sabotage': {
-        valid(r.phase==='play'&&(p.team==='impostor'||practice(r,p)),'Sabotage requires an infiltrator.');
+        valid(r.phase==='play'&&p.team==='impostor','Sabotage requires an infiltrator.');
         valid(!r.sabotage,'A ship system is already disrupted.');
         const id=req?.kind;
         if(id==='doors') {
@@ -399,7 +384,7 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         if(s.kind==='reactor'){
           s.fixed=s.fixed.filter(v=>t-v.at<relayWindow&&v.index!==index);
           s.fixed.push({index,at:t,by:p.id});
-          if(s.fixed.length!==2||(!r.solo&&s.fixed[0].by===s.fixed[1].by))return {};
+          if(s.fixed.length!==2||s.fixed[0].by===s.fixed[1].by)return {};
         } else if(s.kind==='oxygen') {
           if(!s.fixed.some(v=>v.index===index))s.fixed.push({index,at:t});
           if(s.fixed.length!==2)return {};
@@ -416,8 +401,8 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
         p.emergencies--;assembly(r,p,t,'emergency');break;
       case 'vote': {
         const to=req?.id, m=r.meeting;
-        valid(r.phase==='meeting'&&p.alive&&t>=m.voteAt&&t<m.end&&!Object.hasOwn(m.votes,p.id),'Your ballot is unavailable.');
-        valid(to==='skip'||!r.solo&&r.players.some(q=>q.id===to&&active(q)&&q.socket),'Choose a connected living player.');
+        valid(r.phase==='meeting'&&canVote(p)&&t>=m.voteAt&&t<m.end&&!Object.hasOwn(m.votes,p.id),'Your ballot is unavailable.');
+        valid(to==='skip'||r.players.some(q=>q.id===to&&canVote(q)),'Choose a connected living player.');
         m.votes[p.id]=to;break;
       }
       case 'chat': {
@@ -469,10 +454,10 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
     const showProgress=s?.kind!=='comms'&&(r.settings.taskBar==='always'||r.settings.taskBar==='meetings'&&['meeting','verdict'].includes(r.phase));
     const near=q=>playable&&p.ventIndex===null&&dist(p,q)<vision&&(!p.alive||hasLine(p,q,blocked));
     const taskEffects=playable?Object.values(r.taskEffects).filter(q=>(!q.until||q.until>t)&&dist(p,q)<vision&&(!p.alive||hasLine(p,q,blocked))):[];
-    return {code:r.code,phase:r.phase,solo:Boolean(r.solo),round:r.round||0,host:r.host,now:t,until:r.until,roster,settings:r.settings,
+    return {code:r.code,phase:r.phase,round:r.round||0,host:r.host,now:t,until:r.until,roster,settings:r.settings,
       positions:(playable||inLobby)?r.players.filter(q=>!q.retired&&visible(q)).map(view):[view(p)],
       self:{id:p.id,...point(p),color:p.color,hat:p.hat,showName:p.showName,alive:p.alive,team:p.team,role:p.role,ghost:p.ghost,
-        killAt:p.killAt,abilityAt:p.abilityAt,sabotageAt:r.sabotageAt,doorReady:p.team==='impostor'||r.solo?r.doorReady:undefined,ventAt:p.ventAt,effect:e?.id||null,effectUntil:e?.until,battery:p.battery,ventIndex:p.ventIndex,
+        killAt:p.killAt,abilityAt:p.abilityAt,sabotageAt:r.sabotageAt,doorReady:p.team==='impostor'?r.doorReady:undefined,ventAt:p.ventAt,effect:e?.id||null,effectUntil:e?.until,battery:p.battery,ventIndex:p.ventIndex,
         emergencies:p.emergencies,meetingAt:r.meetingAt,used:p.used,signal:p.signal,assignments:p.assignments,
         moveSeq:p.appliedMoveSeq,moveAge:t-p.moveSince,
         allies:p.team==='impostor'?r.players.filter(q=>q.team==='impostor').map(q=>q.id):[]},
@@ -583,10 +568,10 @@ export function attach(io,{now=Date.now,maxRooms=250}={}) {
       if(r.phase==='reveal'&&t>=r.until){r.phase='play';win(r);}
       expireCritical(r,t);
       if(r.phase==='play')win(r);
-      if(r.phase==='meeting'&&(t>=r.meeting.end||r.settings.early&&t>=r.meeting.voteAt&&r.players.filter(p=>active(p)&&p.socket).every(p=>Object.hasOwn(r.meeting.votes,p.id))))tally(r,t);
+      if(r.phase==='meeting'&&(t>=r.meeting.end||r.settings.early&&t>=r.meeting.voteAt&&r.players.filter(canVote).every(p=>Object.hasOwn(r.meeting.votes,p.id))))tally(r,t);
       if(r.phase==='verdict'&&t>=r.until){
         r.phase='play';r.meeting=null;r.meetingAt=t+r.settings.meetingCooldown*1000;r.doors={};
-        r.players.forEach((p,i)=>{Object.assign(p,spawn(i,false));p.killAt=Math.max(p.killAt,t+4500);});
+        r.players.forEach((p,i)=>{Object.assign(p,spawn(i,false));p.killAt=t+strikeCooldown(r,p);});
         win(r);
       }
       if(frame%2===0){

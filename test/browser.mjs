@@ -4,7 +4,7 @@ import {mkdir} from 'node:fs/promises';
 import {setTimeout as wait} from 'node:timers/promises';
 import {chromium} from 'playwright-core';
 import {createGameServer} from '../server/index.js';
-import {deck,deckBounds,contains,dist,terminal,tasks,repairs,doors,playerRadius,cameraSites,securityConsole,vents} from '../shared/deck.js';
+import {deck,deckBounds,dist,terminal,tasks,repairs,cameraSites,securityConsole,vents} from '../shared/deck.js';
 
 import {deckWaypoints} from './deck-route.mjs';
 
@@ -72,6 +72,9 @@ try {
   await host.page.getByLabel('Nickname').fill(host.name);
   await get(host,'Create room').click();
   await until(()=>host.s?.code,'Create private room');
+  assert.equal(await get(host,'START').isEnabled(),false);
+  await host.page.getByText('Waiting for at least 4 players').waitFor();
+  await shot(host,'50-minimum-four');
   await host.page.context().grantPermissions(['clipboard-read','clipboard-write']);
   await get(host,'COPY CODE').click();
   assert.equal(await host.page.evaluate(()=>navigator.clipboard.readText()),host.s.code);
@@ -116,7 +119,14 @@ try {
   await host.page.getByLabel('Emergency meetings').fill('2');
   await host.page.getByLabel('Voting (s)').fill('10');
   await host.page.getByLabel('Common tasks').fill('2');
+  await host.page.getByLabel('Long tasks').fill('0');
+  await host.page.getByLabel('Short tasks').fill('2');
+  await host.page.getByLabel('Crewmate vision').fill('235');
+  await host.page.getByLabel('Infiltrator vision').fill('430');
   await host.page.getByLabel('Strike cooldown (s)').fill('10');
+  await host.page.getByLabel('Walk speed').fill('0');
+  await get(host,'Save settings').click();
+  await host.page.locator('#settings-feedback').filter({hasText:'Walk speed'}).waitFor();
   await host.page.getByLabel('Walk speed').fill('215');
   await shot(host,'04a-match-settings');
   const phantom=host.page.locator('details').filter({hasText:'Phantom'});
@@ -126,11 +136,16 @@ try {
   await shot(host,'04-role-settings');
   await host.page.getByLabel('Visual task effects').uncheck();
   await get(host,'Save settings').click();
+  await until(()=>players.every(p=>p.s.settings.longTasks===0&&p.s.settings.shortTasks===2&&p.s.settings.speed===215),'Host changes reached every browser');
+  await shot(host,'51-settings-saved');
   await get(host,'START').click();
   await until(()=>players.every(p=>p.s.phase==='reveal'),'Round starts on four browsers');
   const infiltrator=players.find(p=>p.s.self.role==='phantom'), crew=players.filter(p=>p!==infiltrator);
   assert.ok(infiltrator&&crew.length===3);
   assert.ok(crew.every(p=>p.s.roster.every(q=>!('role' in q)&&!('team' in q))));
+  assert.ok(players.every(p=>p.s.self.assignments.length===4&&p.s.progress.total===12));
+  assert.ok(crew.every(p=>p.s.vision===235));
+  assert.equal(infiltrator.s.vision,430);
   await shot(infiltrator,'05-role-reveal');
   await advance(4000);
   await get(infiltrator,'Ability').click();
@@ -221,6 +236,12 @@ try {
   await operator.page.mouse.move(box.x+box.width-15,bounds.y+bounds.height/2,{steps:5});
   await operator.page.mouse.up();
   await until(()=>operator.s.progress.done===1,'Badge credited by server');
+  await get(operator,'Tasks').click();
+  await operator.page.getByText('1 / 4 personal tasks complete').waitFor();
+  assert.equal(await operator.page.locator('.mission-list li').count(),4);
+  assert.equal(await operator.page.locator('#task-count').textContent(),'1 / 12');
+  await shot(operator,'52-personal-and-crew-tasks');
+  await operator.page.keyboard.press('Escape');
   await get(operator,'Map').click();
   assert.equal(await stationMarker(operator,badge),false);
   await operator.page.keyboard.press('Escape');
@@ -370,132 +391,88 @@ try {
   await until(()=>guests[0].s?.roster.some(q=>q.name===guests[0].name&&q.online),'Guest resumes after reload');
   await get(host,'START').click();
   await until(()=>players.every(p=>p.s.round===2&&p.s.phase==='reveal'),'Second round starts in same room');
-  const solo=await player('Nova');
-  await get(solo,'CREATE ROOM').click();
-  await solo.page.getByLabel('Nickname').fill(solo.name);
-  await get(solo,'Create room').click();
-  await until(()=>solo.s?.roster.length===1,'Single player lobby');
-  const code=solo.s.code;
-  await drive(solo,terminal.x,terminal.y);
-  await solo.page.keyboard.press('Space');
-  await solo.page.getByRole('dialog',{name:'Suit locker'}).waitFor();
-  assert.equal(await solo.page.locator('.suit-palette button:enabled').count(),18);
-  await shot(solo,'21-color-grid');
-  await solo.page.keyboard.press('Escape');
-  await get(solo,'START').click();
-  await solo.page.getByRole('heading',{name:/^[1-3]$/}).waitFor();
-  await shot(solo,'17-solo-countdown');
-  await advance(3100);
-  await solo.page.getByRole('heading',{name:'Crewmate',exact:true}).waitFor();
-  await shot(solo,'18-solo-role');
-  await advance(3600);
-  await until(()=>solo.s.phase==='play'&&solo.s.solo,'Solo map stays playable');
-  await shot(solo,'19-solo-gameplay');
-  for(const [key,direction] of [['a','left'],['d','right'],['w','up'],['s','down']]){
-    await solo.page.keyboard.down(key);
-    await until(()=>solo.s.positions.some(q=>q.id===solo.s.self.id&&q.moving&&q.direction===direction),'Walk '+direction);
-    await solo.page.keyboard.up(key);
-  }
-  await until(()=>solo.s.positions.some(q=>q.id===solo.s.self.id&&!q.moving&&q.direction==='down'),'Standing retains last facing');
+  assert.ok(players.every(p=>p.s.settings.speed===215&&p.s.self.assignments.length===4));
+  await advance(11000);
+  const secondInfiltrator=players.find(p=>p.s.self.team==='impostor');
+  await get(secondInfiltrator,'Sabotage').click();
+  await get(secondInfiltrator,'OXYGEN').click();
+  await until(()=>players.every(p=>p.s.sabotage?.kind==='oxygen'),'Second round started with the same lobby settings');
+  await advance(40500);
+  await until(()=>players.every(p=>p.s.outcome?.team==='impostor'),'Second round ends after the alarm deadline');
+  await get(host,'Return to shuttle').click();
+  await until(()=>players.every(p=>p.s.phase==='lobby'),'Return to dropship again');
 
-  await get(solo,'Map').click();
-  await solo.page.getByRole('dialog',{name:'Meridian deck plan'}).waitFor();
-  await solo.page.keyboard.press('Escape');
-  await get(solo,'Test controls').click();
-  await get(solo,'Deck overview').click();
-  await shot(solo,'26-full-deck');
-  await solo.page.keyboard.press('Escape');
-  const hatch=doors.find(d=>d.label==='Cafeteria · east hall');
-  await navigate(solo,{x:hatch.x+64,y:hatch.y});
-  await until(()=>solo.s.positions.some(q=>q.id===solo.s.self.id&&!q.moving),'Stopped at the east shutter');
-  assert.ok(solo.s.self.x>hatch.x+hatch.w/2+playerRadius+2,'Standing clear of the shutter collision footprint');
-  await shot(solo,'33-hall-open');
-  await get(solo,'Test controls').click();
-  await get(solo,'Sabotage').click();
-  await solo.page.getByLabel('Bulkhead').selectOption(String(hatch.id));
-  await get(solo,'Seal bulkhead').click();
-  try {
-    await until(()=>solo.s.doors.includes(hatch.id),'East corridor shutter closes');
-  } catch (error) {
-    const notice=await solo.page.locator('#notice').textContent();
-    throw new Error(`East shutter did not close. Player ${solo.s.self.x},${solo.s.self.y}. Relay notice: ${notice || '(none)'}`,{cause:error});
+  const fifth=await player('Noor');
+  await get(fifth,'JOIN ROOM').click();
+  await fifth.page.getByLabel('Nickname').fill(fifth.name);
+  await fifth.page.getByLabel('Room code').fill(host.s.code);
+  await get(fifth,'Join room').click();
+  const five=[...players,fifth];
+  await until(()=>five.every(p=>p.s?.roster.length===5),'Fifth independent browser joins');
+  await get(host,'Settings').click();
+  for(const [name,value] of [['Emergency meetings','5'],['Intercom cooldown (s)','5'],['Voting (s)','17'],['Discussion (s)','15'],['Common tasks','0'],['Long tasks','1'],['Short tasks','0']]){
+    await host.page.getByLabel(name).fill(value);
   }
-  await shot(solo,'34-hall-closed');
-  await advance(9800);
-  await until(()=>!solo.s.doors.includes(hatch.id),'East corridor shutter reopens');
-  const demonstrations=new Map([
-    ['electrical',['calibrate','35-calibrate']],['reactor',['reactor','36-start-reactor']],
-    ['nav',['chart','37-chart-course']],['oxygen',['filter','38-oxygen-filter']]
-  ]);
-  for(const [room,file] of [[deck.storage,'29-storage'],[deck.electrical,'30-solo-electrical'],[deck.reactor,'27-reactor'],[deck.nav,'28-navigation'],[deck.oxygen,'39-oxygen']]){
-    await navigate(solo,room);
-    assert.ok(contains(room,solo.s.self.x,solo.s.self.y));
-    await shot(solo,file);
-    const example=demonstrations.get(room.id);
-    if(!example)continue;
-    const task=tasks.find(t=>t.id===example[0]);
-    const station=task.stops[0];
-    await navigate(solo,station);
-    await solo.page.locator('.space-action').filter({hasText:task.label}).waitFor();
-    await solo.page.keyboard.press('Space');
-    await solo.page.getByRole('dialog',{name:task.label}).waitFor();
-    await shot(solo,example[1]);
-    if(task.id==='chart'){
-      const points=await solo.page.locator('[data-key=waypoint]').all();
-      for(const [i,point] of points.entries()){
-        const b=await point.boundingBox();
-        await solo.page.mouse.move(b.x+b.width/2,b.y+b.height/2);
-        if(i===0)await solo.page.mouse.down();
-        await until(()=>solo.s.puzzle?.progress===i+1||solo.s.self.assignments.some(a=>a.id==='chart'&&a.done),'Dragged chart waypoint '+i);
-      }
-      await solo.page.mouse.up();
-    }else if(task.id==='filter'){
-      const particles=[0,1,2,3,4].map(i=>solo.page.locator('[data-key=clear][data-value="'+i+'"]'));
-      const exhaust=await solo.page.locator('.filter-exhaust').boundingBox();
-      for(const point of particles){
-        const b=await point.boundingBox(), count=solo.s.puzzle.debris.length;
-        await solo.page.mouse.move(b.x+b.width/2,b.y+b.height/2);
-        await solo.page.mouse.down();
-        await solo.page.mouse.move(exhaust.x+exhaust.width/2,exhaust.y+exhaust.height/2,{steps:5});
-        await solo.page.mouse.up();
-        await until(()=>solo.s.puzzle?.debris?.length===count-1||solo.s.self.assignments.some(a=>a.id==='filter'&&a.done),'Dragged intake particle');
-      }
-    }else await solo.page.keyboard.press('Escape');
-  }
-  const sample=tasks.find(t=>t.id==='sample');
-  await navigate(solo,sample.stops[0]);
-  await solo.page.setViewportSize({width:412,height:756});
-  const touchPrompt=solo.page.locator('.space-action').filter({hasText:sample.label});
-  await touchPrompt.waitFor();
-  const promptBox=await touchPrompt.boundingBox();
-  assert.ok(Math.abs(promptBox.x+promptBox.width/2-206)<2);
-  assert.ok((await get(solo,'Map').boundingBox()).x>350);
-  await touchPrompt.click();
-  await solo.page.getByRole('dialog',{name:sample.label}).waitFor();
-  await get(solo,'Start analysis').click();
-  await solo.page.keyboard.press('Escape');
-  await advance(12100);
-  await solo.page.setViewportSize({width:1365,height:835});
-  await solo.page.keyboard.press('Space');
-  await solo.page.locator('.samples .anomaly').waitFor();
-  await shot(solo,'40-sample-analysis');
-  await solo.page.locator('.samples .anomaly').click();
-  await until(()=>solo.s.self.assignments.some(a=>a.id==='sample'&&a.done),'Sample completes using the preserved analyzer');
-  await get(solo,'Test controls').click();
-  await solo.page.getByLabel('Practice role').selectOption('scientist');
-  await get(solo,'Apply role').click();
-  await get(solo,'Ability').click();
-  await get(solo,'Remote vitals').click();
-  await until(()=>solo.s.tactical.vitals?.[0]?.alive,'Solo scientist can test vitals');
-  await solo.page.keyboard.press('Escape');
-  await get(solo,'Test controls').click();
-  await shot(solo,'20-solo-controls');
-  await get(solo,'Return to dropship').click();
-  await until(()=>solo.s.phase==='lobby'&&solo.s.code===code,'Solo returns to the same private room');
-  await get(solo,'START').click();
-  await until(()=>solo.s.phase==='countdown','Solo can start again');
+  await host.page.getByLabel('End voting when all eligible players vote').uncheck();
+  await host.page.getByLabel('Confirm ejection team').uncheck();
+  await host.page.getByLabel('Task bar updates').selectOption('meetings');
+  await shot(host,'53-settings-selection');
+  await get(host,'Save settings').click();
+  await until(()=>five.every(p=>p.s.settings.voting===17),'Updated ballot settings reached all five players');
+  await get(host,'START').click();
+  await until(()=>five.every(p=>p.s.round===3&&p.s.phase==='reveal'),'Five browsers start the next round');
+  assert.ok(five.every(p=>p.s.self.assignments.length===1&&p.s.progress===null));
+  await advance(8500);
+  const impostor=five.find(p=>p.s.self.team==='impostor');
+  const [suspect,other]=five.filter(p=>p!==impostor&&p!==fifth);
+  const verdict=async (targets,{name,tie=false,ejected=null,ratings,disconnect,heading})=>{
+    await navigate(host,deck.cafe);
+    await host.page.keyboard.press('Space');
+    await until(()=>five.every(p=>p.s.meeting?.kind==='emergency'),'New emergency reaches five players');
+    const deadline=host.s.meeting;
+    assert.equal(deadline.voteAt-deadline.introUntil,15000);
+    assert.equal(deadline.end-deadline.voteAt,17000);
+    assert.deepEqual(host.s.progress,{done:0,total:4});
+    await advance(16900);
+    for(const [i,who] of targets.entries()){
+      if(who===null)continue;
+      const voter=five[i];
+      if(who==='skip')await get(voter,'Skip Vote').click();
+      else await voter.page.locator('.ballot-row').filter({hasText:who.name}).getByRole('button',{name:'Vote',exact:true}).click();
+      await get(voter,'Confirm vote').click();
+      await until(()=>voter.s.meeting?.myVote===(who==='skip'?'skip':who.s.self.id),'Ballot acknowledged for '+voter.name);
+    }
+    if(disconnect){
+      await disconnect.page.goto('about:blank');
+      await until(()=>host.s.roster.some(p=>p.id===disconnect.s.self.id&&!p.online),'Disconnected candidate is offline');
+    }
+    assert.ok(host.s.phase==='meeting');
+    const online=five.filter(p=>p!==disconnect);
+    await advance(17300);
+    await until(()=>online.every(p=>p.s.phase==='verdict'),'Every connected browser sees the same verdict');
+    const result=host.s.meeting.result;
+    assert.deepEqual(result.counts,Object.fromEntries(ratings.map(([candidate,count])=>[candidate==='skip'?'skip':candidate.s.self.id,count])));
+    assert.equal(result.target?.id||null,ejected?.s.self.id||null);
+    assert.equal(result.tie,tie);assert.equal(result.votes,null);assert.equal(result.role,null);assert.equal(result.override,false);
+    assert.ok(online.every(p=>JSON.stringify(p.s.meeting.result)===JSON.stringify(result)));
+    await host.page.getByRole('heading',{name:heading,exact:true}).waitFor();
+    await shot(host,name);
+    if(disconnect){
+      await disconnect.page.goto(address);
+      await until(()=>host.s.roster.some(p=>p.id===disconnect.s.self.id&&p.online),'Offline player resumes');
+    }
+    await advance(ejected?4900:10100);
+    if(!ejected)await until(()=>five.every(p=>p.s.phase==='play'),'No player was ejected and play continues');
+    if(!ejected)await advance(5100);
+  };
+  await verdict([suspect,suspect,other,other,null],{name:'54-player-tie',tie:true,ratings:[[suspect,2],[other,2]],heading:'Ballot tied'});
+  await verdict(['skip','skip','skip',suspect,suspect],{name:'55-skip-majority',ratings:[['skip',3],[suspect,2]],heading:'Crew skipped the vote'});
+  await verdict(['skip','skip',suspect,suspect,fifth],{name:'56-offline-tie',tie:true,ratings:[['skip',2],[suspect,2]],disconnect:fifth,heading:'Ballot tied'});
+  await verdict(Array(5).fill('skip'),{name:'57-all-skip',ratings:[['skip',5]],heading:'Crew skipped the vote'});
+  await verdict([impostor,impostor,impostor,suspect,suspect],{name:'58-majority-ejects',ejected:impostor,ratings:[[impostor,3],[suspect,2]],heading:impostor.name+' ejected'});
+  await until(()=>five.every(p=>p.s.outcome?.team==='crew'),'Crew wins after the majority ejection');
   assert.deepEqual(runtimeErrors,[]);
-  console.log('Four independent Chromium contexts passed multiplayer, and a fifth passed solo practice and replay.');
+  console.log('Five independent Chromium contexts verified task settings and five ballot outcomes across three consecutive matches.');
 } finally {
   await browser?.close();
   await close();

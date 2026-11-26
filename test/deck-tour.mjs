@@ -5,12 +5,13 @@ import {setTimeout as wait} from 'node:timers/promises';
 import {chromium} from 'playwright-core';
 import {deck,doors,dist,walkable} from '../shared/deck.js';
 import {createGameServer} from '../server/index.js';
+import {joinTestGuests} from './room-guests.mjs';
 import {deckWaypoints} from './deck-route.mjs';
 
 const before=process.argv.includes('--before');
 const directory=process.env.FAYEZ_SCREENSHOTS||'test-results/deck-tour';
 await mkdir(directory,{recursive:true});
-let offset=0, browser, state;
+let offset=0, browser, state, guests=[];
 const {server,close}=createGameServer({now:()=>Date.now()+offset,serve:true});
 server.listen(0,'127.0.0.1');
 await once(server,'listening');
@@ -48,22 +49,21 @@ try{
     assert.ok(walkable(state.self.x,state.self.y,false),'Player occupies walkable floor');
   }
 
-  await page.goto('http://127.0.0.1:'+server.address().port);
+  const address='http://127.0.0.1:'+server.address().port;
+  await page.goto(address);
   await button('CREATE ROOM').click();
   await page.getByLabel('Nickname').fill('Nova');
   await button('Create room').click();
+  await until(s=>s.code,'Create lobby');
+  guests=await joinTestGuests(address,state.code);
   await button('Settings').click();
   await page.getByLabel('Walk speed').fill('240');
   await button('Save settings').click();
   await button('START').click();
   await until(s=>s.phase==='countdown','Launch');
   offset+=3130;await until(s=>s.phase==='reveal','Reveal');
-  offset+=3500;await until(s=>s.phase==='play'&&s.solo,'Board ship');
+  offset+=3500;await until(s=>s.phase==='play','Board ship');
   const overview=async()=>{
-    await button('Test controls').click();
-    await button('Deck overview').click();
-    await shot('physical');
-    await page.keyboard.press('Escape');
     await button('Map').click();
     await shot('blue');
     await page.keyboard.press('Escape');
@@ -87,10 +87,15 @@ try{
         const door=doors.find(d=>d.label==='Cafeteria · east hall');
         const hall={x:door.x+58,y:door.y};
         await walk(hall);await shot('open-shutter');
-        await button('Test controls').click();
-        await button('Sabotage').click();
-        await page.getByLabel('Bulkhead').selectOption(String(door.id));
-        await button('Seal bulkhead').click();
+        const infiltrator=guests.find(g=>g.state?.self.team==='impostor');
+        if(infiltrator){
+          const reply=await infiltrator.socket.timeout(2500).emitWithAck('command',{kind:'sabotage',data:{kind:'doors',door:door.id}});
+          assert.ok(reply.ok,reply.error);
+        }else{
+          await button('Sabotage').click();
+          await page.getByLabel('Bulkhead').selectOption(String(door.id));
+          await button('Seal bulkhead').click();
+        }
         await until(s=>s.doors.includes(door.id),'Shutter seals');
         await shot('closed-shutter');
         offset+=9800;await until(s=>!s.doors.includes(door.id),'Shutter opens');

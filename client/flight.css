@@ -304,6 +304,8 @@ button.danger, .hud button.danger { background: #693245; color: #ffded6; }
 #signal-reference{stroke:#b6c5a6;stroke-dasharray:4 3}
 #signal-reading{stroke:#6fe5d2}
 #meeting-task-progress{max-width:180px;margin:.35rem 0}
+.settings-save{position:sticky;top:0;z-index:1;display:flex;align-items:center;flex-wrap:wrap;gap:.75rem;margin-bottom:.5rem;padding:.4rem;background:#1b2934;border-radius:6px}
+.task-summary{font-weight:700}
 @media(max-width:510px){
   .security-grid{gap:.4rem}
   .camera-feed figcaption{padding:.24rem;font-size:.66rem}

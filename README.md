@@ -1,6 +1,6 @@
 # Fayez Crew
 
-Fayez Crew is a private 4–10 player browser social-deduction game aboard the Meridian salvage ship. The captain starts a group match or a solo test from a walkable dropship. The crew completes assignments and votes on incidents while hidden infiltrators sabotage systems and pick off the crew. Optional roles start disabled.
+Fayez Crew is a private 4–10 player browser social-deduction game aboard the Meridian salvage ship. The captain starts matches from a walkable dropship. The crew completes assignments and votes on incidents while hidden infiltrators sabotage systems and pick off the crew. Optional roles start disabled.
 
 [Play the live game](https://fayezarcade.github.io/FayezAmongUs/) · [Windows development handoff](docs/PC_HANDOFF.md)
 
@@ -18,13 +18,9 @@ Open the URL Vite prints. The dev server runs the relay on the same origin. On a
 1. Select **CREATE ROOM**, enter your nickname and share the six-character code with friends.
 2. Friends select **JOIN ROOM**, enter their nicknames and enter that code.
 3. Move with **WASD** or **arrow keys**. Approach the GEAR terminal and use **Space** to choose a unique color and equipment. Touch devices have a directional pad and an on-screen action.
-4. The captain can start a solo test with one player or a normal flight with four to ten connected players. Two and three players can share the lobby while waiting.
+4. Four connected players are required to launch with one infiltrator. Two infiltrators require six players, and three require eight. Smaller groups can wait in the dropship. The captain can save lobby rules before launch.
 5. **Space** uses the centered action for nearby stations, repairs, hatches, the emergency console and reportable incidents. Hold **Tab** to peek at the deck plan, or toggle it with **M** or the **Map** button. Use **V** near a hatch if your role can enter it. Infiltrators can use **Q** to attempt a nearby elimination. The **Chat** tab is available during meetings.
 6. The captain can re-dock after the result. Share the same room code for the next flight.
-
-## Solo testing
-
-Create a room and press **START** while alone. After the countdown and role reveal, **Map** shows the same deck used for group matches. Every task station is available in solo mode. **Test controls** lets you select Engineer, Scientist, or Phantom to exercise untargeted abilities, trigger sabotage, clear hazards, and return to the same dropship. Finishing tasks or running out a sabotage timer keeps the test running.
 
 ## Verify
 
@@ -35,7 +31,7 @@ CHROMIUM_PATH=/usr/bin/chromium npm run test:browser
 CHROMIUM_PATH=/usr/bin/chromium npm run test:instruments
 ```
 
-The server tests cover room isolation, role secrecy, authoritative actions, and puzzle rules. The browser scenario uses four independent multiplayer contexts and a separate solo context against the built client and relay. The instrument check also drives each browser task control against its server validator. Screenshots go to `test-results/screenshots` and `test-results/instruments` by default. Set `FAYEZ_SCREENSHOTS` to choose a different location. Use an installed Chromium executable or install Playwright Chromium and omit `CHROMIUM_PATH`. [PowerShell commands](docs/PC_HANDOFF.md#tests-and-release-verification)
+The server tests cover room isolation, role secrecy, authoritative actions, and puzzle rules. The browser scenario uses five independent multiplayer contexts across consecutive rounds against the built client and relay. The instrument check also drives each browser task control against its server validator. Screenshots go to `test-results/screenshots` and `test-results/instruments` by default. Set `FAYEZ_SCREENSHOTS` to choose a different location. Use an installed Chromium executable or install Playwright Chromium and omit `CHROMIUM_PATH`. [PowerShell commands](docs/PC_HANDOFF.md#tests-and-release-verification)
 
 ## Deploy
 

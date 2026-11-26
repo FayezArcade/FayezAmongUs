@@ -10,8 +10,8 @@ export const gameNumbers = {
   killCooldown:['Strike cooldown (s)',10,60,20],
   killDistance:['Strike distance',32,95,58],
   commonTasks:['Common tasks',0,2,1],
-  shortTasks:['Short tasks',0,10,3],
-  longTasks:['Long tasks',0,5,1]
+  longTasks:['Long tasks',0,5,1],
+  shortTasks:['Short tasks',0,10,3]
 };
 
 export const gameChecks = {
@@ -22,3 +22,4 @@ export const gameChecks = {
 };
 
 export const taskBars = {always:'Always',meetings:'Meetings',never:'Never'};
+export const requiredPlayers = infiltrators => Math.max(4,infiltrators*2+2);

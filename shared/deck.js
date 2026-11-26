@@ -1,4 +1,4 @@
-export const deckRevision='meridian-6';
+export const deckRevision='meridian-7';
 export const playerScale=.67;
 export const playerRadius=9;
 export const emergencyRange=79;

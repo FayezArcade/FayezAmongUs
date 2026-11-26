@@ -88,6 +88,7 @@ test('four private clients play, repair, report, vote, reset and start a second 
   assert.equal((await worker.act('taskStep',{type:'swipe'})).done,true);
   assert.equal((await worker.act('taskStep',{type:'swipe'})).ok,false);
   await until(()=>worker.s.progress.done===1);
+  assert.equal(worker.s.progress.total,9);
   await advance(11000);
   assert.ok((await villain.act('sabotage',{kind:'lights'})).ok);
   await until(()=>crew.every(p=>p.s.sabotage?.kind==='lights'&&p.s.vision===82));
@@ -181,6 +182,8 @@ test('engineer hatch travel is gated and the complete assignment pool wins the r
       await navigate(p,stop);
       const open=await p.act('taskOpen',{id:wire.id});assert.ok(open.puzzle);
       for(const c of open.puzzle.left)assert.ok((await p.act('taskStep',{type:'pair',a:c,b:c})).ok);
+      const stage=wire.stops.indexOf(stop)+1;
+      await until(()=>p.s.self.assignments.some(a=>a.id===wire.id&&a.stage===stage&&a.done===(stage===wire.stops.length)));
     }
     await navigate(p,badge);
     assert.ok((await p.act('taskOpen',{id:'card'})).puzzle);
@@ -192,47 +195,21 @@ test('engineer hatch travel is gated and the complete assignment pool wins the r
   assert.match(host.s.outcome.reason,/restored every/);
 });
 
-test('a solo flight exposes stations and practice tools, survives sabotage, and can relaunch',{timeout:18000},async t=>{
-  const {host,session,advance,connect}=await fixture(t,1);
+test('fewer than four clients cannot launch, including after a disconnect',async t=>{
+  const {host,session,advance,connect}=await fixture(t,3);
+  assert.match((await host.act('start')).error,/at least 4/);
   const guest=await connect();
-  assert.ok((await guest.entry({kind:'join',code:session.code,name:'Sol'})).ok);
-  await until(()=>host.s?.roster.length===2);
-  assert.equal((await host.act('start')).ok,false);
-  await guest.act('leave');
-  await until(()=>host.s?.roster.length===1);
-  assert.match(session.code,/^[A-Z2-9]{6}$/);
+  assert.ok((await guest.entry({kind:'join',code:session.code,name:'Noor'})).ok);
+  await until(()=>host.s.roster.filter(p=>p.online).length===4);
   assert.ok((await host.act('start')).ok);
-  await until(()=>host.s.phase==='countdown'&&host.s.solo);
+  guest.socket.disconnect();
+  await until(()=>host.s.roster.filter(p=>p.online).length===3);
   await advance(3100);
-  assert.equal(host.s.phase,'reveal');
-  assert.equal(host.s.self.team,'crew');
-  await advance(3500);
-  assert.equal(host.s.phase,'play');
-  assert.equal(host.s.self.assignments.length,tasks.length);
-  const card=tasks.find(q=>q.id==='card').stops[0];
-  await navigate(host,card);
-  assert.ok((await host.act('taskOpen',{id:'card'})).puzzle);
-  await host.act('taskStep',{type:'begin'});await advance(450);
-  assert.equal((await host.act('taskStep',{type:'swipe'})).done,true);
-  await until(()=>host.s.progress.done===1);
-  assert.ok((await host.act('practiceRole',{role:'scientist'})).ok);
-  assert.ok((await host.act('ability')).ok);
-  await until(()=>host.s.tactical.vitals?.[0]?.alive);
-  assert.equal((await host.act('practiceRole',{role:'judge'})).ok,false);
-  await advance(8000);
-  assert.ok((await host.act('sabotage',{kind:'oxygen'})).ok);
-  await until(()=>host.s.sabotage?.kind==='oxygen');
-  await advance(41000);
-  assert.equal(host.s.phase,'play');
-  assert.equal(host.s.sabotage,null);
-  assert.ok((await host.act('practiceReturn')).ok);
-  await until(()=>host.s.phase==='lobby'&&!host.s.solo);
-  assert.equal(host.s.code,session.code);
-  assert.ok((await host.act('start')).ok);
-  await advance(3200);
-  assert.equal(host.s.round,2);
-  assert.equal(host.s.self.role,null);
-  assert.equal(host.s.progress.done,0);
+  assert.equal(host.s.phase,'lobby');
+  assert.match((await host.act('start')).error,/at least 4/);
+  for(const cmd of ['practiceRole','practiceMeeting','practiceClear','practiceReturn']){
+    assert.match((await host.act(cmd)).error,/unknown action/i);
+  }
 });
 
 test('a private dropship supports ten people and rejects an eleventh',async t=>{
@@ -307,26 +284,27 @@ test('a closed bulkhead blocks movement on every client and reopens on the serve
 });
 
 test('the sample analyzer keeps its countdown after cancel and reopening',{timeout:15000},async t=>{
-  const {host,advance}=await fixture(t,1);
-  assert.ok((await host.act('settings',{speed:240})).ok);
+  const {host,players,advance}=await fixture(t);
+  assert.ok((await host.act('settings',{speed:240,longTasks:5})).ok);
   assert.ok((await host.act('start')).ok);
   await advance(3100);
   await advance(3500);
+  const worker=players.find(p=>p.s.self.team==='crew');
   const station=tasks.find(v=>v.id==='sample').stops[0];
-  await navigate(host,station);
-  const opened=await host.act('taskOpen',{id:'sample'});
+  await navigate(worker,station);
+  const opened=await worker.act('taskOpen',{id:'sample'});
   assert.equal(opened.puzzle.ready,null);
-  const started=await host.act('taskStep',{type:'beginSample'});
+  const started=await worker.act('taskStep',{type:'beginSample'});
   assert.ok(started.puzzle.ready);
   assert.equal(started.puzzle.odd,undefined);
-  assert.ok((await host.act('taskClose')).ok);
+  assert.ok((await worker.act('taskClose')).ok);
   await advance(12100);
-  const resumed=await host.act('taskOpen',{id:'sample'});
+  const resumed=await worker.act('taskOpen',{id:'sample'});
   assert.equal(resumed.puzzle.ready,started.puzzle.ready);
   assert.ok(Number.isInteger(resumed.puzzle.odd));
-  assert.equal((await host.act('taskStep',{type:'sample',a:resumed.puzzle.odd})).done,true);
-  assert.equal((await host.act('taskStep',{type:'sample',a:resumed.puzzle.odd})).ok,false);
-  await until(()=>host.s.progress.done===1);
+  assert.equal((await worker.act('taskStep',{type:'sample',a:resumed.puzzle.odd})).done,true);
+  assert.equal((await worker.act('taskStep',{type:'sample',a:resumed.puzzle.odd})).ok,false);
+  await until(()=>worker.s.progress.done===1);
 });
 
 
@@ -385,24 +363,28 @@ test('host values govern movement, vision, assignments and strike distance acros
   await until(()=>players.every(p=>p.s.round===2&&p.s.self.emergencies===0));
 });
 
-test('visual scanner cues follow the host setting',{timeout:22000},async t=>{
-  const {host,advance}=await fixture(t,1);
+test('visual scanner cues follow the host setting for nearby crewmates',{timeout:28000},async t=>{
+  const {host,players,advance}=await fixture(t);
   const scan=tasks.find(task=>task.id==='scan').stops[0];
   for(const visualTasks of [false,true]){
-    assert.ok((await host.act('settings',{visualTasks,speed:240})).ok);
-    await host.act('start');
+    assert.ok((await host.act('settings',{visualTasks,speed:240,longTasks:5})).ok);
+    assert.ok((await host.act('start')).ok);
     await advance(3100);await advance(3500);
-    await navigate(host,scan);
-    assert.ok((await host.act('taskOpen',{id:'scan'})).ok);
-    assert.ok((await host.act('taskStep',{type:'begin'})).ok);
-    await until(()=>Number.isFinite(host.s.puzzle?.hold)&&host.s.positions.some(p=>p.id===host.s.self.id&&p.scanning===visualTasks));
+    const [worker,observer]=players.filter(p=>p.s.self.team==='crew');
+    await Promise.all([navigate(worker,scan),navigate(observer,scan)]);
+    assert.ok((await worker.act('taskOpen',{id:'scan'})).ok);
+    assert.ok((await worker.act('taskStep',{type:'begin'})).ok);
+    await until(()=>Number.isFinite(worker.s.puzzle?.hold)&&observer.s.positions.some(p=>p.id===worker.s.self.id&&p.scanning===visualTasks));
     await advance(1600);
-    assert.ok((await host.act('taskStep',{type:'finish'})).done);
-    assert.ok((await host.act('practiceReturn')).ok);
+    assert.ok((await worker.act('taskStep',{type:'finish'})).done);
+    const villain=players.find(p=>p.s.self.team==='impostor');
+    await advance(8000);
+    assert.ok((await villain.act('sabotage',{kind:'oxygen'})).ok);
+    await advance(41000);
+    assert.ok((await host.act('reset')).ok);
     await until(()=>host.s.phase==='lobby');
   }
 });
-
 
 test('six players receive two infiltrators when the host selects two',{timeout:10000},async t=>{
   const {host,players,advance}=await fixture(t,6);
@@ -436,4 +418,104 @@ test('a living cleaner ejects a concealed hatch occupant and temporarily blocks 
   assert.match((await villain.act('vent',{action:'enter'})).error,/being serviced/);
   assert.ok((await cleaner.act('taskClose')).ok);
   assert.ok((await villain.act('vent',{action:'enter'})).ok);
+});
+
+test('task counts, shared common routes and crew totals follow four different lobby configurations',async t=>{
+  const {host,players,advance}=await fixture(t);
+  const combos=[[1,1,3],[2,0,1],[0,0,0],[2,5,10]];
+  for(const [index,[commonTasks,longTasks,shortTasks]] of combos.entries()){
+    const saved=await host.act('settings',{commonTasks,longTasks,shortTasks});
+    assert.ok(saved.ok);
+    assert.deepEqual([saved.settings.commonTasks,saved.settings.longTasks,saved.settings.shortTasks],combos[index]);
+    assert.ok((await host.act('start')).ok);
+    await advance(3100);await advance(3500);
+    await until(()=>players.every(p=>p.s.phase==='play'&&p.s.round===index+1));
+    const expected=commonTasks+longTasks+shortTasks;
+    const commonIds=p=>p.s.self.assignments.filter(a=>tasks.find(task=>task.id===a.id).kind==='common').map(a=>a.id);
+    for(const p of players){
+      const assignments=p.s.self.assignments;
+      assert.equal(assignments.length,expected);
+      assert.equal(new Set(assignments.map(a=>a.id)).size,expected);
+      assert.deepEqual(commonIds(p),commonIds(host));
+      for(const [kind,count] of [['common',commonTasks],['long',longTasks],['short',shortTasks]]){
+        assert.equal(assignments.filter(a=>tasks.find(task=>task.id===a.id).kind===kind).length,count);
+      }
+      assert.deepEqual(p.s.progress,{done:0,total:3*expected});
+    }
+    if(commonTasks===2){
+      const villain=players.find(p=>p.s.self.team==='impostor');
+      await navigate(villain,tasks.find(task=>task.id==='card').stops[0]);
+      assert.ok((await villain.act('taskOpen',{id:'card'})).ok);
+      await villain.act('taskStep',{type:'begin'});await advance(450);
+      assert.equal((await villain.act('taskStep',{type:'swipe'})).done,true);
+      await until(()=>villain.s.self.assignments.find(a=>a.id==='card').done);
+      assert.equal(villain.s.progress.done,0);
+    }
+    await advance(8000);
+    const villain=players.find(p=>p.s.self.team==='impostor');
+    assert.ok((await villain.act('sabotage',{kind:'reactor'})).ok);
+    await advance(41000);
+    assert.ok((await host.act('reset')).ok);
+    await until(()=>players.every(p=>p.s.phase==='lobby'));
+  }
+});
+
+test('a disconnected candidate cannot win and a reconnected voter cannot vote twice',async t=>{
+  const {host,session,players,advance,connect}=await fixture(t);
+  const [,a,b,c]=players;
+  await host.act('settings',{discussion:5,voting:10,anonymous:false,early:false,meetingCooldown:5,killCooldown:30});
+  await host.act('start');await advance(3100);await advance(8500);
+  await navigate(host,deck.cafe);
+  assert.ok((await host.act('emergency')).ok);
+  await advance(6900);
+  assert.ok((await host.act('vote',{id:a.s.self.id})).ok);
+  assert.ok((await a.act('vote',{id:'skip'})).ok);
+  host.socket.disconnect();
+  await until(()=>a.s.roster.some(p=>p.id===session.id&&!p.online));
+  assert.equal((await c.act('vote',{id:session.id})).ok,false);
+  const resumed=await connect();
+  assert.ok((await resumed.entry({kind:'resume',code:session.code,token:session.token})).ok);
+  await until(()=>resumed.s?.meeting?.myVote===a.s.self.id);
+  assert.equal((await resumed.act('vote',{id:'skip'})).ok,false);
+  a.socket.disconnect();
+  await until(()=>b.s.roster.some(p=>p.id===a.s.self.id&&!p.online));
+  assert.ok((await b.act('vote',{id:'skip'})).ok);
+  await advance(10200);
+  const verdict=b.s.meeting.result;
+  assert.equal(verdict.target,null);
+  assert.equal(verdict.tie,false);
+  assert.deepEqual(verdict.counts,{skip:2});
+  assert.deepEqual(verdict.votes,[[a.s.self.id,'skip'],[b.s.self.id,'skip']]);
+  assert.equal((await c.act('vote',{id:'skip'})).ok,false);
+  await advance(4900);
+  const infiltrator=[resumed,b,c].find(p=>p.s.self.team==='impostor');
+  if(infiltrator)assert.ok(infiltrator.s.self.killAt-infiltrator.s.now>29500);
+});
+
+test('the enabled Judge override is explicit and keeps the actual tally and confirmation',async t=>{
+  const {host,players,advance}=await fixture(t);
+  await host.act('settings',{commonTasks:2,shortTasks:0,longTasks:0,speed:240,discussion:5,voting:10,
+    early:false,anonymous:false,confirm:true,meetingCooldown:5,roles:{judge:{enabled:true,max:1,chance:100}}});
+  await host.act('start');await advance(3100);await advance(9000);
+  const judges=players.filter(p=>p.s.self.role==='judge');
+  assert.equal(judges.length,1);
+  const [judge]=judges, villain=players.find(p=>p.s.self.team==='impostor');
+  await navigate(judge,tasks.find(task=>task.id==='card').stops[0]);
+  assert.ok((await judge.act('taskOpen',{id:'card'})).ok);
+  await judge.act('taskStep',{type:'begin'});await advance(450);
+  assert.equal((await judge.act('taskStep',{type:'swipe'})).done,true);
+  await navigate(judge,deck.cafe);
+  assert.ok((await judge.act('emergency')).ok);
+  assert.equal((await judge.act('ability',{target:villain.s.self.id})).ok,false);
+  await advance(6900);
+  for(const p of players)assert.ok((await p.act('vote',{id:'skip'})).ok);
+  assert.equal((await villain.act('ability',{target:judge.s.self.id})).ok,false);
+  assert.ok((await judge.act('ability',{target:villain.s.self.id})).ok);
+  assert.equal((await judge.act('ability',{target:villain.s.self.id})).ok,false);
+  await advance(10200);
+  assert.equal(host.s.meeting.result.target.id,villain.s.self.id);
+  assert.equal(host.s.meeting.result.override,true);
+  assert.equal(host.s.meeting.result.role,'impostor');
+  assert.deepEqual(host.s.meeting.result.counts,{skip:4});
+  assert.equal(host.s.meeting.result.votes.length,4);
 });
